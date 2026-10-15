@@ -50,9 +50,9 @@ The index builder executes in a single streaming pass ($O(N)$ time, $O(1)$ extra
 For a segment starting at point $(x_0, y_0)$ and a given maximum error tolerance $\epsilon$:
 Each subsequent point $(x_i, y_i)$ restricts the feasible slope interval $[s_{\min}, s_{\max}]$:
 
-$$s_{\min} = \max_{j} \left\{ \frac{(y_j - \epsilon) - y_0}{x_j - x_0} \right\}$$
+$$s_{\min} = \max_{j} \left[ \frac{(y_j - \epsilon) - y_0}{x_j - x_0} \right]$$
 
-$$s_{\max} = \min_{j} \left\{ \frac{(y_j + \epsilon) - y_0}{x_j - x_0} \right\}$$
+$$s_{\max} = \min_{j} \left[ \frac{(y_j + \epsilon) - y_0}{x_j - x_0} \right]$$
 
 As long as $s_{\min} \le s_{\max}$, all points observed so far can be represented by a single straight line with error at most $\epsilon$. Once $s_{\min} > s_{\max}$, the segment is finalized with slope $s = \frac{s_{\min} + s_{\max}}{2}$, and a new segment starts.
 
