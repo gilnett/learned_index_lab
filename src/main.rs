@@ -1,9 +1,7 @@
 // Copyright (c) Learned Index Lab
 // 10-Run Statistical Benchmark Harness: BTreeMap ("Avant") vs PGM-Index ("Après")
 
-mod pgm;
-
-use pgm::PgmIndex;
+use learned_index_lab::PgmIndex;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
