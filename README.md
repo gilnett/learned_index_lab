@@ -1,5 +1,9 @@
 # Learned Index Lab: Piecewise Geometric Model (PGM-Index) in Rust
 
+[![Crates.io](https://img.shields.io/crates/v/learned_index_lab.svg)](https://crates.io/crates/learned_index_lab)
+[![Docs.rs](https://docs.rs/learned_index_lab/badge.svg)](https://docs.rs/learned_index_lab)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 A zero-dependency, production-grade implementation of **Piecewise Geometric Model (PGM) Learned Index Structures** in pure Rust.
 
 This repository demonstrates the paradigm shift away from traditional comparison-based pointer hierarchies (such as B-Trees and LSM block indexes) to **mathematical function approximations** of Empirical Cumulative Distribution Functions (CDFs) with provable $\epsilon$ error bounds.
