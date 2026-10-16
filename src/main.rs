@@ -102,7 +102,13 @@ fn max_val(values: &[f64]) -> f64 {
     values.iter().copied().fold(f64::NEG_INFINITY, f64::max)
 }
 
-fn run_single_iteration(dist: DistributionType, n_items: usize, n_queries: usize, seed: u64, epsilon: usize) -> RunMetric {
+fn run_single_iteration(
+    dist: DistributionType,
+    n_items: usize,
+    n_queries: usize,
+    seed: u64,
+    epsilon: usize,
+) -> RunMetric {
     let dataset = generate_dataset(dist, n_items, seed);
 
     let mut rng = Rng::new(seed + 10_000);
@@ -129,7 +135,7 @@ fn run_single_iteration(dist: DistributionType, n_items: usize, n_queries: usize
     let t0 = Instant::now();
     let mut btree_hits = 0;
     for &k in &hit_queries {
-        if btree.get(&k).is_some() {
+        if let Some(&_val) = btree.get(&k) {
             btree_hits += 1;
         }
     }
@@ -138,7 +144,7 @@ fn run_single_iteration(dist: DistributionType, n_items: usize, n_queries: usize
     let t0 = Instant::now();
     let mut btree_misses = 0;
     for &k in &miss_queries {
-        if btree.get(&k).is_some() {
+        if let Some(&_val) = btree.get(&k) {
             btree_misses += 1;
         }
     }
@@ -182,13 +188,29 @@ fn run_single_iteration(dist: DistributionType, n_items: usize, n_queries: usize
     }
 }
 
-fn execute_suite(title: &str, dist: DistributionType, epsilon: usize, n_items: usize, n_queries: usize, num_runs: usize) {
+fn execute_suite(
+    title: &str,
+    dist: DistributionType,
+    epsilon: usize,
+    n_items: usize,
+    n_queries: usize,
+    num_runs: usize,
+) {
     println!("\n{}", "=".repeat(95));
-    println!(">>> BANC DE TEST ({} RUNS CONSÉCUTIFS) : {} [epsilon = {}]", num_runs, title, epsilon);
+    println!(
+        ">>> BANC DE TEST ({} RUNS CONSÉCUTIFS) : {} [epsilon = {}]",
+        num_runs, title, epsilon
+    );
     println!("{}", "=".repeat(95));
 
-    println!("{:>5} | {:>14} | {:>14} | {:>14} | {:>14} | {:>8}",
-        "Run", "Build (BTree/PGM)", "Hit (BTree/PGM)", "Miss (BTree/PGM)", "Accélération", "Segments"
+    println!(
+        "{:>5} | {:>14} | {:>14} | {:>14} | {:>14} | {:>8}",
+        "Run",
+        "Build (BTree/PGM)",
+        "Hit (BTree/PGM)",
+        "Miss (BTree/PGM)",
+        "Accélération",
+        "Segments"
     );
     println!("{}", "-".repeat(95));
 
@@ -199,11 +221,15 @@ fn execute_suite(title: &str, dist: DistributionType, epsilon: usize, n_items: u
         let m = run_single_iteration(dist, n_items, n_queries, seed, epsilon);
         let speedup = m.btree_hit_ns / m.pgm_hit_ns;
 
-        println!("#{:02}  | {:>5.1}ms / {:>4.1}ms | {:>5.1}ns / {:>4.1}ns | {:>5.1}ns / {:>4.1}ns |    {:>5.2}x    | {:>6}",
+        println!(
+            "#{:02}  | {:>5.1}ms / {:>4.1}ms | {:>5.1}ns / {:>4.1}ns | {:>5.1}ns / {:>4.1}ns |    {:>5.2}x    | {:>6}",
             run,
-            m.btree_build_ms, m.pgm_build_ms,
-            m.btree_hit_ns, m.pgm_hit_ns,
-            m.btree_miss_ns, m.pgm_miss_ns,
+            m.btree_build_ms,
+            m.pgm_build_ms,
+            m.btree_hit_ns,
+            m.pgm_hit_ns,
+            m.btree_miss_ns,
+            m.pgm_miss_ns,
             speedup,
             m.pgm_segments
         );
@@ -218,26 +244,47 @@ fn execute_suite(title: &str, dist: DistributionType, epsilon: usize, n_items: u
     let pgm_hits: Vec<f64> = metrics.iter().map(|m| m.pgm_hit_ns).collect();
     let btree_misses: Vec<f64> = metrics.iter().map(|m| m.btree_miss_ns).collect();
     let pgm_misses: Vec<f64> = metrics.iter().map(|m| m.pgm_miss_ns).collect();
-    let speedups: Vec<f64> = metrics.iter().map(|m| m.btree_hit_ns / m.pgm_hit_ns).collect();
+    let speedups: Vec<f64> = metrics
+        .iter()
+        .map(|m| m.btree_hit_ns / m.pgm_hit_ns)
+        .collect();
 
     println!("SYNTHÈSE STATISTIQUE (MOYENNE sur {} runs) :", num_runs);
-    println!("├─ Temps de Construction : BTree = {:.2} ms | PGM = {:.2} ms (PGM {:.1}x plus rapide)",
-        mean(&btree_builds), mean(&pgm_builds), mean(&btree_builds) / mean(&pgm_builds)
+    println!(
+        "├─ Temps de Construction : BTree = {:.2} ms | PGM = {:.2} ms (PGM {:.1}x plus rapide)",
+        mean(&btree_builds),
+        mean(&pgm_builds),
+        mean(&btree_builds) / mean(&pgm_builds)
     );
-    println!("├─ Latence Hit (requête trouvée) : BTree = {:.1} ns | PGM = {:.1} ns",
-        mean(&btree_hits), mean(&pgm_hits)
+    println!(
+        "├─ Latence Hit (requête trouvée) : BTree = {:.1} ns | PGM = {:.1} ns",
+        mean(&btree_hits),
+        mean(&pgm_hits)
     );
-    println!("│   • Min PGM = {:.1} ns | Max PGM = {:.1} ns", min_val(&pgm_hits), max_val(&pgm_hits));
-    println!("│   • Gain d'accélération moyen : {:.2}x (Min: {:.2}x, Max: {:.2}x)",
-        mean(&speedups), min_val(&speedups), max_val(&speedups)
+    println!(
+        "│   • Min PGM = {:.1} ns | Max PGM = {:.1} ns",
+        min_val(&pgm_hits),
+        max_val(&pgm_hits)
     );
-    println!("├─ Latence Miss (rejet clé absente) : BTree = {:.1} ns | PGM = {:.1} ns",
-        mean(&btree_misses), mean(&pgm_misses)
+    println!(
+        "│   • Gain d'accélération moyen : {:.2}x (Min: {:.2}x, Max: {:.2}x)",
+        mean(&speedups),
+        min_val(&speedups),
+        max_val(&speedups)
     );
-    println!("├─ Poids Mémoire Index pur : BTree ≈ 45.78 Mo | PGM ≈ {:.1} Ko",
+    println!(
+        "├─ Latence Miss (rejet clé absente) : BTree = {:.1} ns | PGM = {:.1} ns",
+        mean(&btree_misses),
+        mean(&pgm_misses)
+    );
+    println!(
+        "├─ Poids Mémoire Index pur : BTree ≈ 45.78 Mo | PGM ≈ {:.1} Ko",
         mean(&metrics.iter().map(|m| m.pgm_index_kb).collect::<Vec<_>>())
     );
-    println!("└─ Exactitude : 100.0% sur l'ensemble des {} tests (0 discordance)", num_runs);
+    println!(
+        "└─ Exactitude : 100.0% sur l'ensemble des {} tests (0 discordance)",
+        num_runs
+    );
 }
 
 fn main() {

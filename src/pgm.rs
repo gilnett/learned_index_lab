@@ -28,18 +28,29 @@ impl PgmIndex {
             };
         }
 
-        let n = data.len();
+        debug_assert!(
+            data.windows(2).all(|w| w[0] <= w[1]),
+            "PGM-Index requires pre-sorted data in non-decreasing order"
+        );
+
         let eps = epsilon as f64;
         let mut segments = Vec::new();
 
         let mut x0 = data[0];
         let mut y0 = 0.0f64;
 
+        let compute_slope = |s_min: f64, s_max: f64| -> f64 {
+            if s_max.is_finite() {
+                (s_min + s_max) / 2.0
+            } else {
+                s_min
+            }
+        };
+
         let mut s_min = 0.0f64;
         let mut s_max = f64::INFINITY;
 
-        for i in 1..n {
-            let xi = data[i];
+        for (i, &xi) in data.iter().enumerate().skip(1) {
             let yi = i as f64;
             let dx = (xi - x0) as f64;
 
@@ -47,7 +58,7 @@ impl PgmIndex {
                 // Duplicate key
                 if (yi - y0).abs() > eps {
                     // Force segment completion
-                    let slope = if s_max.is_finite() { (s_min + s_max) / 2.0 } else { s_min };
+                    let slope = compute_slope(s_min, s_max);
                     segments.push(Segment {
                         key: x0,
                         slope,
@@ -72,7 +83,7 @@ impl PgmIndex {
                 s_max = next_s_max;
             } else {
                 // Current point cannot be added to this segment within epsilon
-                let slope = if s_max.is_finite() { (s_min + s_max) / 2.0 } else { s_min };
+                let slope = compute_slope(s_min, s_max);
                 segments.push(Segment {
                     key: x0,
                     slope,
@@ -87,7 +98,7 @@ impl PgmIndex {
         }
 
         // Push the final active segment
-        let slope = if s_max.is_finite() { (s_min + s_max) / 2.0 } else { s_min };
+        let slope = compute_slope(s_min, s_max);
         segments.push(Segment {
             key: x0,
             slope,
@@ -195,5 +206,68 @@ mod tests {
         assert_eq!(pgm.find(0), None);
         assert_eq!(pgm.find(25), None);
         assert_eq!(pgm.find(99999), None);
+    }
+
+    #[test]
+    fn test_duplicates_and_identical_elements() {
+        let data = vec![5, 5, 5, 5, 5, 5, 5, 5, 5, 5];
+        let pgm = PgmIndex::build(data.clone(), 2);
+        assert!(pgm.find(5).is_some());
+        assert_eq!(pgm.find(4), None);
+        assert_eq!(pgm.find(6), None);
+
+        let mixed = vec![1, 2, 2, 2, 3, 5, 5, 10, 10, 10, 12];
+        let pgm_mixed = PgmIndex::build(mixed.clone(), 2);
+        for &v in &mixed {
+            let idx = pgm_mixed.find(v);
+            assert!(idx.is_some());
+            assert_eq!(mixed[idx.unwrap()], v);
+        }
+    }
+
+    #[test]
+    fn test_minimal_epsilon_one() {
+        let data = vec![10, 20, 30, 40, 50];
+        let pgm = PgmIndex::build(data.clone(), 1);
+        for (i, &v) in data.iter().enumerate() {
+            assert_eq!(pgm.find(v), Some(i));
+        }
+    }
+
+    #[test]
+    fn test_extreme_u64_limits() {
+        let data = vec![
+            u64::MAX - 1000,
+            u64::MAX - 500,
+            u64::MAX - 100,
+            u64::MAX - 1,
+            u64::MAX,
+        ];
+        let pgm = PgmIndex::build(data.clone(), 2);
+        for (i, &v) in data.iter().enumerate() {
+            assert_eq!(pgm.find(v), Some(i));
+        }
+        assert_eq!(pgm.find(u64::MAX - 2000), None);
+    }
+
+    #[test]
+    fn test_memory_accounting() {
+        let data = vec![1, 2, 3, 4, 5];
+        let pgm = PgmIndex::build(data, 4);
+        assert!(pgm.memory_footprint_bytes() > 0);
+        assert!(pgm.index_only_bytes() > 0);
+        assert!(pgm.memory_footprint_bytes() > pgm.index_only_bytes());
+    }
+
+    #[test]
+    #[should_panic(expected = "Epsilon must be >= 1")]
+    fn test_zero_epsilon_panics() {
+        let _ = PgmIndex::build(vec![1, 2, 3], 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "PGM-Index requires pre-sorted data")]
+    fn test_unsorted_data_panics_in_debug() {
+        let _ = PgmIndex::build(vec![3, 1, 2], 4);
     }
 }
