@@ -234,7 +234,7 @@ cargo run --release
 
 ### Seminal Research Papers
 - **Kraska et al. (2018)**: *"The Case for Learned Index Structures"* (SIGMOD 2018) – [arXiv:1712.01208](https://arxiv.org/abs/1712.01208). Seminal paper proving that sorted indexes can be modeled as cumulative distribution function (CDF) regressions.
-- **Ferragina & Vinciguerra (2020)**: *"The PGM-index: a data-structure with a bound on space, build time and query time"* (PVLDB 2020) – [PVLDB (PDF)](https://www.vldb.org/pvldb/vol13/p1162-ferragina.pdf) / [arXiv:1910.06169](https://arxiv.org/abs/1910.06169). Establishes optimal piecewise linear approximation (PLA) under bounded error corridors $\epsilon$.
+- **Ferragina & Vinciguerra (2020)**: *"The PGM-index: a fully-dynamic compressed learned index with provable worst-case bounds"* (PVLDB 2020) – [PVLDB (PDF)](https://www.vldb.org/pvldb/vol13/p1162-ferragina.pdf) / [arXiv:1910.06169](https://arxiv.org/abs/1910.06169). Establishes optimal piecewise linear approximation (PLA) under bounded error corridors $\epsilon$.
 - **Ferragina & Vinciguerra (2020)**: Reference C++ PGM implementation & resources – [pgm.di.unipi.it](https://pgm.di.unipi.it/) / [GitHub: gvinciguerra/PGM-index](https://github.com/gvinciguerra/PGM-index).
 
 ---
