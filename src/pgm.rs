@@ -151,6 +151,106 @@ impl PgmIndex {
         }
     }
 
+    /// Returns the index of the first element that is greater than or equal to `target`.
+    ///
+    /// If all elements in the dataset are strictly less than `target`, returns `self.data.len()`.
+    ///
+    /// # Complexity
+    /// `O(log S + log epsilon)` where `S` is the number of linear segments.
+    #[inline]
+    pub fn lower_bound(&self, target: u64) -> usize {
+        let n = self.data.len();
+        if n == 0 {
+            return 0;
+        }
+        if target <= self.data[0] {
+            return 0;
+        }
+        if target > self.data[n - 1] {
+            return n;
+        }
+
+        let seg_idx = match self.segments.binary_search_by_key(&target, |s| s.key) {
+            Ok(idx) => idx,
+            Err(0) => 0,
+            Err(idx) => idx - 1,
+        };
+
+        let seg = &self.segments[seg_idx];
+        let dx = target.saturating_sub(seg.key) as f64;
+        let approx = (seg.intercept + seg.slope * dx).round() as isize;
+
+        let eps = self.epsilon as isize;
+        let max_idx = (n - 1) as isize;
+        let low = (approx - eps).clamp(0, max_idx) as usize;
+        let high = (approx + eps).clamp(0, max_idx) as usize;
+
+        if low <= high {
+            let slice = &self.data[low..=high];
+            let offset = slice.partition_point(|&x| x < target);
+            if offset > 0 && offset < slice.len() {
+                return low + offset;
+            }
+            if offset == 0 && (low == 0 || self.data[low - 1] < target) {
+                return low;
+            }
+            if offset == slice.len() && high == n - 1 {
+                return n;
+            }
+        }
+
+        self.data.partition_point(|&x| x < target)
+    }
+
+    /// Returns a slice of keys within the specified range bounds.
+    ///
+    /// # Example
+    /// ```rust
+    /// use learned_index_lab::PgmIndex;
+    ///
+    /// let data = vec![10, 20, 30, 40, 50, 60, 70];
+    /// let pgm = PgmIndex::build(data, 16);
+    /// assert_eq!(pgm.range(25..=55), &[30, 40, 50]);
+    /// assert_eq!(pgm.range(..30), &[10, 20]);
+    /// ```
+    pub fn range<R: std::ops::RangeBounds<u64>>(&self, bounds: R) -> &[u64] {
+        if self.data.is_empty() {
+            return &[];
+        }
+
+        let start_idx = match bounds.start_bound() {
+            std::ops::Bound::Included(&start) => self.lower_bound(start),
+            std::ops::Bound::Excluded(&start) => {
+                let lb = self.lower_bound(start);
+                let mut idx = lb;
+                while idx < self.data.len() && self.data[idx] == start {
+                    idx += 1;
+                }
+                idx
+            }
+            std::ops::Bound::Unbounded => 0,
+        };
+
+        let end_idx = match bounds.end_bound() {
+            std::ops::Bound::Included(&end) => {
+                let lb = self.lower_bound(end);
+                let mut idx = lb;
+                while idx < self.data.len() && self.data[idx] == end {
+                    idx += 1;
+                }
+                idx
+            }
+            std::ops::Bound::Excluded(&end) => self.lower_bound(end),
+            std::ops::Bound::Unbounded => self.data.len(),
+        };
+
+        if start_idx >= end_idx || start_idx >= self.data.len() {
+            &[]
+        } else {
+            &self.data[start_idx..end_idx.min(self.data.len())]
+        }
+    }
+
     /// Total memory footprint in bytes (data buffer + segments + struct overhead)
     pub fn memory_footprint_bytes(&self) -> usize {
         std::mem::size_of::<Self>()
@@ -269,5 +369,89 @@ mod tests {
     #[should_panic(expected = "PGM-Index requires pre-sorted data")]
     fn test_unsorted_data_panics_in_debug() {
         let _ = PgmIndex::build(vec![3, 1, 2], 4);
+    }
+
+    #[test]
+    fn test_lower_bound_comprehensive() {
+        let data = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+        let pgm = PgmIndex::build(data.clone(), 4);
+
+        assert_eq!(pgm.lower_bound(5), 0);
+        assert_eq!(pgm.lower_bound(10), 0);
+        assert_eq!(pgm.lower_bound(15), 1);
+        assert_eq!(pgm.lower_bound(20), 1);
+        assert_eq!(pgm.lower_bound(95), 9);
+        assert_eq!(pgm.lower_bound(100), 9);
+        assert_eq!(pgm.lower_bound(101), 10);
+        assert_eq!(pgm.lower_bound(9999), 10);
+
+        // Duplicates test
+        let dup_data = vec![10, 20, 20, 20, 30];
+        let pgm_dup = PgmIndex::build(dup_data.clone(), 2);
+        assert_eq!(pgm_dup.lower_bound(20), 1);
+    }
+
+    #[test]
+    fn test_range_queries() {
+        let data = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+        let pgm = PgmIndex::build(data.clone(), 4);
+
+        // Bounded inclusive
+        assert_eq!(pgm.range(25..=65), &[30, 40, 50, 60]);
+        assert_eq!(pgm.range(20..=60), &[20, 30, 40, 50, 60]);
+
+        // Half-open
+        assert_eq!(pgm.range(20..60), &[20, 30, 40, 50]);
+
+        // Unbounded ends
+        assert_eq!(pgm.range(..40), &[10, 20, 30]);
+        assert_eq!(pgm.range(80..), &[80, 90, 100]);
+        assert_eq!(pgm.range(..), &data[..]);
+
+        // Out-of-bounds and inverted ranges
+        assert_eq!(pgm.range(150..200), &[]);
+        assert_eq!(pgm.range(..5), &[]);
+        assert_eq!(pgm.range(50..50), &[]);
+        let (inv_start, inv_end) = (80, 20);
+        assert_eq!(pgm.range(inv_start..inv_end), &[]);
+    }
+
+    #[test]
+    fn test_lower_bound_and_range_empty_and_single() {
+        let empty_pgm = PgmIndex::build(vec![], 4);
+        assert_eq!(empty_pgm.lower_bound(10), 0);
+        assert_eq!(empty_pgm.range(..), &[]);
+        assert_eq!(empty_pgm.range(10..20), &[]);
+
+        let single_pgm = PgmIndex::build(vec![42], 4);
+        assert_eq!(single_pgm.lower_bound(10), 0);
+        assert_eq!(single_pgm.lower_bound(42), 0);
+        assert_eq!(single_pgm.lower_bound(100), 1);
+        assert_eq!(single_pgm.range(40..=50), &[42]);
+        assert_eq!(single_pgm.range(43..50), &[]);
+        assert_eq!(single_pgm.range(..42), &[]);
+        assert_eq!(single_pgm.range(42..), &[42]);
+    }
+
+    #[test]
+    fn test_lower_bound_partition_point_parity() {
+        // Deterministic sequence with non-linear intervals and duplicates
+        let mut data = Vec::with_capacity(1_000);
+        let mut current = 10u64;
+        for i in 0..1_000 {
+            current += (i % 7) as u64;
+            data.push(current);
+        }
+        let pgm = PgmIndex::build(data.clone(), 8);
+
+        // Verify across all contained keys and out-of-bounds keys
+        for probe in (0..current + 20).step_by(3) {
+            let expected = data.partition_point(|&x| x < probe);
+            let actual = pgm.lower_bound(probe);
+            assert_eq!(
+                actual, expected,
+                "Mismatch for probe {probe}: expected index {expected}, got {actual}"
+            );
+        }
     }
 }

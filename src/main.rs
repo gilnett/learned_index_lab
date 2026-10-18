@@ -1,5 +1,5 @@
 // Copyright (c) Learned Index Lab
-// 10-Run Statistical Benchmark Harness: BTreeMap ("Avant") vs PGM-Index ("Après")
+// 10-Run Statistical Benchmark Harness: BTreeMap vs Flat Slice vs PGM-Index
 
 use learned_index_lab::PgmIndex;
 use std::collections::BTreeMap;
@@ -83,8 +83,10 @@ struct RunMetric {
     btree_build_ms: f64,
     pgm_build_ms: f64,
     btree_hit_ns: f64,
+    slice_hit_ns: f64,
     pgm_hit_ns: f64,
     btree_miss_ns: f64,
+    slice_miss_ns: f64,
     pgm_miss_ns: f64,
     pgm_segments: usize,
     pgm_index_kb: f64,
@@ -150,7 +152,26 @@ fn run_single_iteration(
     }
     let btree_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
 
-    // 2. PGM-Index
+    // 2. Flat Slice binary_search (Standard immutable baseline)
+    let t0 = Instant::now();
+    let mut slice_hits = 0;
+    for &k in &hit_queries {
+        if dataset.binary_search(&k).is_ok() {
+            slice_hits += 1;
+        }
+    }
+    let slice_hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+    let t0 = Instant::now();
+    let mut slice_misses = 0;
+    for &k in &miss_queries {
+        if dataset.binary_search(&k).is_ok() {
+            slice_misses += 1;
+        }
+    }
+    let slice_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
+
+    // 3. PGM-Index (Piecewise Geometric Model)
     let t0 = Instant::now();
     let pgm = PgmIndex::build(dataset, epsilon);
     let pgm_build_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -174,14 +195,18 @@ fn run_single_iteration(
     let pgm_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
 
     assert_eq!(btree_hits, pgm_hits);
+    assert_eq!(slice_hits, pgm_hits);
     assert_eq!(btree_misses, pgm_misses);
+    assert_eq!(slice_misses, pgm_misses);
 
     RunMetric {
         btree_build_ms,
         pgm_build_ms,
         btree_hit_ns,
+        slice_hit_ns,
         pgm_hit_ns,
         btree_miss_ns,
+        slice_miss_ns,
         pgm_miss_ns,
         pgm_segments: pgm.segments.len(),
         pgm_index_kb: pgm.index_only_bytes() as f64 / 1024.0,
@@ -196,109 +221,107 @@ fn execute_suite(
     n_queries: usize,
     num_runs: usize,
 ) {
-    println!("\n{}", "=".repeat(95));
+    println!("\n{}", "=".repeat(105));
     println!(
-        ">>> BANC DE TEST ({} RUNS CONSÉCUTIFS) : {} [epsilon = {}]",
+        ">>> BENCHMARK SUITE ({} CONSECUTIVE RUNS) : {} [epsilon = {}]",
         num_runs, title, epsilon
     );
-    println!("{}", "=".repeat(95));
+    println!("{}", "=".repeat(105));
 
     println!(
-        "{:>5} | {:>14} | {:>14} | {:>14} | {:>14} | {:>8}",
-        "Run",
-        "Build (BTree/PGM)",
-        "Hit (BTree/PGM)",
-        "Miss (BTree/PGM)",
-        "Accélération",
-        "Segments"
+        "{:>5} | {:>14} | {:>22} | {:>22} | {:>8}",
+        "Run", "Build (BTree/PGM)", "Hit (BTree/Slice/PGM)", "Miss (BTree/Slice/PGM)", "Segments"
     );
-    println!("{}", "-".repeat(95));
+    println!("{}", "-".repeat(105));
 
     let mut metrics = Vec::with_capacity(num_runs);
 
     for run in 1..=num_runs {
         let seed = (run as u64) * 101 + 7;
         let m = run_single_iteration(dist, n_items, n_queries, seed, epsilon);
-        let speedup = m.btree_hit_ns / m.pgm_hit_ns;
 
         println!(
-            "#{:02}  | {:>5.1}ms / {:>4.1}ms | {:>5.1}ns / {:>4.1}ns | {:>5.1}ns / {:>4.1}ns |    {:>5.2}x    | {:>6}",
+            "#{:02}  | {:>5.1}ms / {:>4.1}ms | {:>4.0}ns / {:>4.0}ns / {:>4.0}ns | {:>4.0}ns / {:>4.0}ns / {:>4.0}ns | {:>6}",
             run,
             m.btree_build_ms,
             m.pgm_build_ms,
             m.btree_hit_ns,
+            m.slice_hit_ns,
             m.pgm_hit_ns,
             m.btree_miss_ns,
+            m.slice_miss_ns,
             m.pgm_miss_ns,
-            speedup,
             m.pgm_segments
         );
         metrics.push(m);
     }
 
-    println!("{}", "-".repeat(95));
+    println!("{}", "-".repeat(105));
 
     let btree_builds: Vec<f64> = metrics.iter().map(|m| m.btree_build_ms).collect();
     let pgm_builds: Vec<f64> = metrics.iter().map(|m| m.pgm_build_ms).collect();
     let btree_hits: Vec<f64> = metrics.iter().map(|m| m.btree_hit_ns).collect();
+    let slice_hits: Vec<f64> = metrics.iter().map(|m| m.slice_hit_ns).collect();
     let pgm_hits: Vec<f64> = metrics.iter().map(|m| m.pgm_hit_ns).collect();
     let btree_misses: Vec<f64> = metrics.iter().map(|m| m.btree_miss_ns).collect();
+    let slice_misses: Vec<f64> = metrics.iter().map(|m| m.slice_miss_ns).collect();
     let pgm_misses: Vec<f64> = metrics.iter().map(|m| m.pgm_miss_ns).collect();
-    let speedups: Vec<f64> = metrics
-        .iter()
-        .map(|m| m.btree_hit_ns / m.pgm_hit_ns)
-        .collect();
 
-    println!("SYNTHÈSE STATISTIQUE (MOYENNE sur {} runs) :", num_runs);
+    let speedup_vs_btree = mean(&btree_hits) / mean(&pgm_hits);
+    let speedup_vs_slice = mean(&slice_hits) / mean(&pgm_hits);
+
+    println!("STATISTICAL SUMMARY (AVERAGE OVER {} RUNS):", num_runs);
     println!(
-        "├─ Temps de Construction : BTree = {:.2} ms | PGM = {:.2} ms (PGM {:.1}x plus rapide)",
+        "├─ Build Time: BTree = {:.2} ms | PGM = {:.2} ms (PGM {:.1}x faster)",
         mean(&btree_builds),
         mean(&pgm_builds),
         mean(&btree_builds) / mean(&pgm_builds)
     );
     println!(
-        "├─ Latence Hit (requête trouvée) : BTree = {:.1} ns | PGM = {:.1} ns",
+        "├─ Hit Latency: BTree = {:.1} ns | Slice binary_search = {:.1} ns | PGM = {:.1} ns",
         mean(&btree_hits),
+        mean(&slice_hits),
         mean(&pgm_hits)
     );
     println!(
-        "│   • Min PGM = {:.1} ns | Max PGM = {:.1} ns",
+        "│   • PGM Speedup: {:.2}x vs BTree | {:.2}x vs Flat Slice",
+        speedup_vs_btree, speedup_vs_slice
+    );
+    println!(
+        "│   • PGM Hit Range: Min = {:.1} ns | Max = {:.1} ns",
         min_val(&pgm_hits),
         max_val(&pgm_hits)
     );
     println!(
-        "│   • Gain d'accélération moyen : {:.2}x (Min: {:.2}x, Max: {:.2}x)",
-        mean(&speedups),
-        min_val(&speedups),
-        max_val(&speedups)
-    );
-    println!(
-        "├─ Latence Miss (rejet clé absente) : BTree = {:.1} ns | PGM = {:.1} ns",
+        "├─ Miss Latency: BTree = {:.1} ns | Slice binary_search = {:.1} ns | PGM = {:.1} ns",
         mean(&btree_misses),
+        mean(&slice_misses),
         mean(&pgm_misses)
     );
     println!(
-        "├─ Poids Mémoire Index pur : BTree ≈ 45.78 Mo | PGM ≈ {:.1} Ko",
+        "├─ Metadata Memory Footprint: BTree ≈ 45.78 MB | Slice = 0 KB | PGM ≈ {:.1} KB",
         mean(&metrics.iter().map(|m| m.pgm_index_kb).collect::<Vec<_>>())
     );
     println!(
-        "└─ Exactitude : 100.0% sur l'ensemble des {} tests (0 discordance)",
+        "└─ Correctness: 100.0% match across all {} runs (0 discrepancies)",
         num_runs
     );
 }
 
 fn main() {
-    println!("=================================================================================");
-    println!("   BANC STATISTIQUE INDUSTRIEL (10 RUNS) : BTREEMAP VS PGM-INDEX (1 000 000 CLÉS)");
-    println!("=================================================================================");
+    println!("{}", "=".repeat(105));
+    println!(
+        "   10-RUN STATISTICAL BENCHMARK: BTREEMAP VS FLAT SLICE VS PGM-INDEX (1,000,000 KEYS)"
+    );
+    println!("{}", "=".repeat(105));
 
     const N_ITEMS: usize = 1_000_000;
     const N_QUERIES: usize = 100_000;
     const NUM_RUNS: usize = 10;
 
-    // Test 1 : Séries Temporelles / Quasi-Séquentiel (epsilon = 32)
+    // Test 1: Dense Sequential / Time-Series (epsilon = 32)
     execute_suite(
-        "Séries Temporelles / Quasi-Séquentiel",
+        "Dense Sequential / Time-Series",
         DistributionType::DenseTimestamp,
         32,
         N_ITEMS,
@@ -306,9 +329,9 @@ fn main() {
         NUM_RUNS,
     );
 
-    // Test 2 : Distribution Éparse Aléatoire (epsilon = 16)
+    // Test 2: Uniform Sparse Random Distribution (epsilon = 16)
     execute_suite(
-        "Distribution Éparse Aléatoire (Uniforme)",
+        "Uniform Sparse Random Distribution",
         DistributionType::UniformSparse,
         16,
         N_ITEMS,
@@ -316,17 +339,13 @@ fn main() {
         NUM_RUNS,
     );
 
-    // Test 3 : Distribution Asymétrique Clustered / Lognormale (epsilon = 16)
+    // Test 3: Heavy-Tailed Lognormal Distribution (epsilon = 16)
     execute_suite(
-        "Distribution Asymétrique / Clustered (Lognormale)",
+        "Heavy-Tailed Lognormal Distribution",
         DistributionType::ClusteredLognormal,
         16,
         N_ITEMS,
         N_QUERIES,
         NUM_RUNS,
     );
-
-    println!("\n=================================================================================");
-    println!("   RÉSULTATS STATISTIQUES CONCLUANTS ET REPRODUCTIBLES SUR 10 ITÉRATIONS");
-    println!("=================================================================================");
 }
