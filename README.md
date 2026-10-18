@@ -9,6 +9,13 @@ A zero-dependency, production-grade implementation of **Piecewise Geometric Mode
 
 This repository demonstrates the paradigm shift away from traditional comparison-based pointer hierarchies (such as B-Trees and LSM block indexes) to **mathematical function approximations** of Empirical Cumulative Distribution Functions (CDFs) with provable $\epsilon$ error bounds.
 
+> [!NOTE]
+> **Academic Attribution & Acknowledgments**: I am **not** the original creator of Learned Indexes or the Piecewise Geometric Model (PGM-index).
+> - The foundational concept of **Learned Index Structures** was originated by **Tim Kraska, Alex Beutel, Ed H. Chi, Jeffrey Dean, and Neoklis Polyzotis** (MIT / Google) in their landmark paper [*"The Case for Learned Index Structures"* (SIGMOD 2018)](https://arxiv.org/abs/1712.01208).
+> - The **Piecewise Geometric Model Index (PGM-index)** and its optimal streaming piecewise linear approximation (PLA) algorithm were invented and proven by **Paolo Ferragina and Giorgio Vinciguerra** (University of Pisa) in [*"The PGM-index: a fully-dynamic compressed learned index with provable worst-case bounds"* (PVLDB 2020)](https://www.vldb.org/pvldb/vol13/p1162-ferragina.pdf) ([arXiv:1910.06169](https://arxiv.org/abs/1910.06169), official site: [pgm.di.unipi.it](https://pgm.di.unipi.it/), C++ repository: [gvinciguerra/PGM-index](https://github.com/gvinciguerra/PGM-index)).
+> 
+> This repository (`learned_index_lab`) is an independent, clean-room educational and production-oriented implementation in pure safe Rust, built to explore, benchmark, and evaluate learned indexing mechanics within the modern systems ecosystem.
+
 ---
 
 ## Table of Contents
@@ -17,7 +24,8 @@ This repository demonstrates the paradigm shift away from traditional comparison
 - [Mathematical Foundation](#mathematical-foundation)
   - [Optimal Streaming Piecewise Linear Approximation (PLA)](#optimal-streaming-piecewise-linear-approximation-pla)
   - [Bounded Local Search](#bounded-local-search)
-- [Why It Outperforms Traditional B-Trees](#why-it-outperforms-traditional-b-trees)
+- [Architectural Comparison & Hardware Dynamics](#architectural-comparison--hardware-dynamics)
+- [Decision Matrix: When to Use PGM-Index vs. B-Tree](#decision-matrix-when-to-use-pgm-index-vs-b-tree)
 - [Statistical Benchmark Suite (10-Run Rigorous Analysis)](#statistical-benchmark-suite-10-run-rigorous-analysis)
   - [1. Dense Sequential Time-Series Data](#1-dense-sequential-time-series-data)
   - [2. Uniform Sparse Random Keys](#2-uniform-sparse-random-keys)
@@ -26,7 +34,10 @@ This repository demonstrates the paradigm shift away from traditional comparison
 - [Quickstart & Code Example](#quickstart--code-example)
 - [Reproducibility & Verification](#reproducibility--verification)
 - [Resources & References](#resources--references)
+  - [Referenced Repositories & Implementations](#referenced-repositories--implementations)
+  - [Historical Documentation & Version Tracking](#historical-documentation--version-tracking)
 - [License](#license)
+
 
 ---
 
@@ -77,20 +88,37 @@ During point lookup:
 
 ---
 
-## Why It Outperforms Traditional B-Trees
+## Architectural Comparison & Hardware Dynamics
 
-| Dimension | Standard `BTreeMap` | `PGM-Index` (Learned) | Concrete Hardware Impact |
-| :--- | :--- | :--- | :--- |
-| **Index Structure** | Dynamic nodes with pointers | Contiguous array of $(a, b, k_0)$ segments | Entire index resides in CPU L1/L2 cache |
-| **Lookup Mechanism** | 4–6 node hops across RAM | 1 affine math evaluation + local L1 search | Eliminates unpredictable pointer chasing |
-| **Build Time** | $O(N \log N)$ repeated node rebalancing | $O(N)$ single-pass linear streaming | **~22x faster build times** |
-| **Memory Footprint** | ~45 MB per 1,000,000 keys | **3.1 KB – 48 KB** per 1,000,000 keys | **-99.89% to -99.99% memory reduction** |
+Starting with v0.2.0, `learned_index_lab` now evaluates PGM against **both** common baseline approaches:
+1. [**`std::collections::BTreeMap`**](https://doc.rust-lang.org/std/collections/struct.BTreeMap.html): The standard library mutable, dynamic pointer-based search tree.
+2. [**`Flat slice::binary_search`**](https://doc.rust-lang.org/std/primitive.slice.html#method.binary_search): The standard library immutable baseline (contiguous array binary search).
+
+
+| Dimension | Standard `BTreeMap` | Flat `slice::binary_search` | `PGM-Index` (Learned) | Microarchitectural Advantage |
+| :--- | :--- | :--- | :--- | :--- |
+| **Index Structure** | Dynamic nodes across heap | Contiguous raw buffer | Compact array of $(a, b, k_0)$ segments | Metadata fits entirely inside **L1/L2 cache** |
+| **Lookup Mechanism** | 4–6 node hops across RAM | $\sim 20$ binary jumps across 8 MB | 1 in-register math eval + local 4 cache lines | Eliminates DRAM stalls & cache pollution |
+| **Index Metadata** | $\sim 45\text{ MB}$ per $10^6$ keys | $0\text{ KB}$ (data must stay resident) | **3.1 KB – 48 KB** per $10^6$ keys | **-99.9% index memory vs B-Tree** |
+| **Lookup Latency** | $220 - 290\text{ ns}$ | $140 - 160\text{ ns}$ | **48 - 70 ns** | **3x faster vs B-Tree, ~2.2x vs Slice** |
+| **Construction Time** | $\sim 70\text{ ms}$ ($O(N \log N)$) | $0\text{ ms}$ (pre-sorted input) | **$3.5\text{ ms}$** ($O(N)$ streaming) | **~18x faster construction than B-Tree** |
+
+---
+
+## Decision Matrix: When to Use PGM-Index vs. B-Tree
+
+| Workload Characteristic | Recommended Structure | Rationale |
+| :--- | :--- | :--- |
+| **Frequent in-place mutations / OLTP** | **`B-Tree` / `B+Tree`** | Better for concurrent writes, transactional locking, and dynamic in-place page splits. |
+| **Immutable / Read-heavy sorted datasets** | **`PGM-Index`** | Ideal for SSTables in LSM engines (RocksDB), columnar row groups (DuckDB, ClickHouse), and static tables. |
+| **Severe memory constraints (RAM / Cache)** | **`PGM-Index`** | Compresses index metadata up to 14,000x, enabling billions of keys to fit into resident CPU cache. |
+| **Contiguous in-memory binary search** | **`PGM-Index`** | Up to **2.9x faster** than flat `slice::binary_search` by cutting memory traffic from 20 cache lines down to 4. |
 
 ---
 
 ## Statistical Benchmark Suite (10-Run Rigorous Analysis)
 
-All benchmarks were measured locally on x86_64 hardware using Rust 1.99 in `--release` mode.
+All benchmarks were measured locally on x86_64 hardware using Rust in `--release` mode.
 Each scenario was executed over **10 consecutive runs** with distinct randomized seeds to eliminate CPU scheduling noise and warm-cache anomalies.
 
 - **Dataset Size**: 1,000,000 keys (64-bit integers)
@@ -104,24 +132,14 @@ Simulates monotonically increasing timestamps, network log sequences, or primary
 Distribution: Dense Timestamp | Tolerance: epsilon = 32
 ```
 
-| Run # | Build Time (BTree / PGM) | Hit Latency (BTree / PGM) | Miss Latency (BTree / PGM) | Speedup (Hit) | Segments |
-| :---: | :---: | :---: | :---: | :---: | :---: |
-| **01** | 77.7 ms / 3.1 ms | 288.3 ns / 116.2 ns | 14.1 ns / 0.9 ns | **2.48x** | 93 |
-| **02** | 77.4 ms / 3.3 ms | 262.6 ns / 84.0 ns | 8.6 ns / 0.7 ns | **3.13x** | 84 |
-| **03** | 72.4 ms / 3.1 ms | 263.4 ns / 70.0 ns | 8.7 ns / 0.6 ns | **3.76x** | 81 |
-| **04** | 79.8 ms / 4.4 ms | 322.7 ns / 119.7 ns | 11.6 ns / 0.8 ns | **2.70x** | 83 |
-| **05** | 77.2 ms / 3.1 ms | 282.8 ns / 78.2 ns | 10.8 ns / 0.6 ns | **3.62x** | 84 |
-| **06** | 73.0 ms / 3.1 ms | 311.0 ns / 102.8 ns | 8.8 ns / 0.7 ns | **3.03x** | 81 |
-| **07** | 75.4 ms / 4.6 ms | 323.7 ns / 103.5 ns | 17.9 ns / 0.9 ns | **3.13x** | 81 |
-| **08** | 72.9 ms / 3.1 ms | 286.6 ns / 87.8 ns | 8.5 ns / 0.7 ns | **3.26x** | 80 |
-| **09** | 76.1 ms / 3.6 ms | 309.3 ns / 126.6 ns | 9.0 ns / 1.2 ns | **2.44x** | 83 |
-| **10** | 73.9 ms / 3.4 ms | 265.4 ns / 108.5 ns | 8.6 ns / 1.0 ns | **2.45x** | 82 |
-| **AVG** | **75.57 ms / 3.49 ms** | **291.6 ns / 99.7 ns** | **10.7 ns / 0.8 ns** | **3.00x** | **83 segments** |
-
-- **Compression Ratio**: 1,000,000 keys compressed into **83 affine equations** (12,048x factor).
-- **Index Memory**: 45.78 MB (`BTreeMap`) $\to$ **3.1 KB (`PGM-Index`)** (**-99.99%**).
-- **Hit Speedup**: **3.00x faster average lookup**.
-- **Miss Speedup**: **13.3x faster negative rejection**.
+| Metric | `BTreeMap` | Flat `slice::binary_search` | `PGM-Index` (Learned) | Improvement Factor |
+| :--- | :--- | :--- | :--- | :--- |
+| **Mean Build Time** | 67.94 ms | 0.00 ms (pre-sorted) | 3.65 ms | **18.6x faster than BTree** |
+| **Index-Only Memory** | 45.78 MB | 0 KB | 3.1 KB | **14,700x compression** |
+| **Mean Hit Latency** | 221.8 ns/op | 152.7 ns/op | **63.5 ns/op** | **3.50x vs BTree \| 2.41x vs Slice** |
+| **Mean Miss Latency** | 10.0 ns/op | 23.7 ns/op | **0.7 ns/op** | **14.3x faster negative rejection** |
+| **Segments Count** | N/A | N/A | 83 segments | **12,048x factor** |
+| **Verification** | 100.0% match | 100.0% match | 100.0% match | **0 discrepancies across 10 runs** |
 
 ---
 
@@ -133,16 +151,14 @@ Simulates randomly distributed 64-bit object IDs, hashed identifiers, and sparse
 Distribution: Uniform Sparse Random | Tolerance: epsilon = 16
 ```
 
-| Metric | `BTreeMap` (Standard) | `PGM-Index` (Learned) | Improvement Factor |
-| :--- | :--- | :--- | :--- |
-| **Mean Build Time** | 76.01 ms | 3.34 ms | **22.8x faster build** |
-| **Index-Only Memory** | 45.78 MB | 48.1 KB | **-99.89% memory reduction** |
-| **Segments Count** | N/A (thousands of nodes) | 1,406 segments | **711x compression** |
-| **Mean Hit Latency** | 264.6 ns/op | 89.4 ns/op | **2.98x faster** (Min: 73.2 ns, Max: 109.9 ns) |
-| **Mean Miss Latency** | 251.7 ns/op | 81.6 ns/op | **3.08x faster** |
-| **Verification** | 100.0% match | 100.0% match | **Zero discrepancies across 10 runs** |
-
----
+| Metric | `BTreeMap` | Flat `slice::binary_search` | `PGM-Index` (Learned) | Improvement Factor |
+| :--- | :--- | :--- | :--- | :--- |
+| **Mean Build Time** | 68.79 ms | 0.00 ms (pre-sorted) | 3.82 ms | **18.0x faster than BTree** |
+| **Index-Only Memory** | 45.78 MB | 0 KB | 48.1 KB | **-99.89% memory reduction** |
+| **Mean Hit Latency** | 223.0 ns/op | 150.9 ns/op | **70.5 ns/op** | **3.16x vs BTree \| 2.14x vs Slice** |
+| **Mean Miss Latency** | 214.6 ns/op | 104.0 ns/op | **68.1 ns/op** | **3.15x vs BTree \| 1.53x vs Slice** |
+| **Segments Count** | N/A | N/A | 1,406 segments | **711x compression** |
+| **Verification** | 100.0% match | 100.0% match | 100.0% match | **0 discrepancies across 10 runs** |
 
 ### 3. Clustered Heavy-Tailed Lognormal Distribution
 
@@ -152,24 +168,25 @@ Simulates real-world power-law distributions (web traffic requests, financial tr
 Distribution: Lognormal Clustered | Tolerance: epsilon = 16
 ```
 
-| Metric | `BTreeMap` (Standard) | `PGM-Index` (Learned) | Improvement Factor |
-| :--- | :--- | :--- | :--- |
-| **Mean Build Time** | 75.04 ms | 3.24 ms | **23.1x faster build** |
-| **Index-Only Memory** | 45.78 MB | 12.1 KB | **-99.97% memory reduction** |
-| **Segments Count** | N/A | 455 segments | **2,197x compression** |
-| **Mean Hit Latency** | 260.2 ns/op | 81.3 ns/op | **3.21x faster** (Min: 69.2 ns, Max: 92.1 ns) |
-| **Mean Miss Latency** | 68.7 ns/op | 42.0 ns/op | **1.64x faster** |
-| **Verification** | 100.0% match | 100.0% match | **Zero discrepancies across 10 runs** |
+| Metric | `BTreeMap` | Flat `slice::binary_search` | `PGM-Index` (Learned) | Improvement Factor |
+| :--- | :--- | :--- | :--- | :--- |
+| **Mean Build Time** | 69.75 ms | 0.00 ms (pre-sorted) | 3.90 ms | **17.9x faster than BTree** |
+| **Index-Only Memory** | 45.78 MB | 0 KB | 12.1 KB | **-99.97% memory reduction** |
+| **Mean Hit Latency** | 216.4 ns/op | 141.0 ns/op | **48.6 ns/op** | **4.45x vs BTree \| 2.90x vs Slice** |
+| **Mean Miss Latency** | 61.4 ns/op | 39.8 ns/op | **38.2 ns/op** | **1.61x vs BTree \| 1.04x vs Slice** |
+| **Segments Count** | N/A | N/A | 455 segments | **2,197x compression** |
+| **Verification** | 100.0% match | 100.0% match | 100.0% match | **0 discrepancies across 10 runs** |
 
 ---
 
 ## Real-World Production Applications
 
-### 1. Columnar OLAP Databases (ClickHouse, DuckDB, Parquet)
+### 1. Columnar OLAP Databases ([ClickHouse](https://github.com/ClickHouse/ClickHouse), [DuckDB](https://github.com/duckdb/duckdb), [Apache Parquet](https://github.com/apache/parquet-format))
 Analytical engines ingest massive sorted blocks. PGM-Index acts as a lightweight zone map replacement, locating record offsets across millions of rows with minimal CPU instruction overhead.
 
-### 2. LSM-Tree Storage Engines (RocksDB, ScyllaDB, LevelDB)
-In an LSM storage engine, SSTables written to NVMe are strictly immutable. Replacing traditional sparse block index tables with PGM segments allows billions of keys to be indexed **entirely in host CPU cache or RAM**, reducing NVMe read amplification to exactly 1 physical block I/O per query.
+### 2. LSM-Tree Storage Engines ([RocksDB](https://github.com/facebook/rocksdb), [ScyllaDB](https://github.com/scylladb/scylladb), [LevelDB](https://github.com/google/leveldb))
+In an LSM storage engine, SSTables written to NVMe are strictly immutable. Replacing traditional sparse block index tables ([RocksDB BlockBasedTable format](https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format)) with PGM segments allows billions of keys to be indexed **entirely in host CPU cache or RAM**, reducing NVMe read amplification to exactly 1 physical block I/O per query.
+
 
 ### 3. OS File Indexing & Cataloging
 Fast local file indexers (e.g., Everything, NTFS USN Journal analyzers) can catalog tens of millions of records within a few megabytes of RAM while delivering sub-100ns path resolution.
@@ -181,27 +198,35 @@ Forwarding Information Bases (FIB) at 100+ Gbps line rates require deterministic
 
 ## Quickstart & Code Example
 
-Add `learned_index_lab` to your `Cargo.toml`, or include `pgm.rs` directly in your project:
+Add `learned_index_lab` to your `Cargo.toml`:
 
 ```rust
-use pgm::PgmIndex;
+use learned_index_lab::PgmIndex;
 
 fn main() {
-    // 1. Prepare sorted data
+    // 1. Prepare sorted dataset
     let data: Vec<u64> = vec![
         100, 105, 110, 115, 120, 250, 500, 1000, 1500, 2000, 5000, 10000
     ];
 
-    // 2. Build the PGM index with maximum error epsilon (e.g. 16 or 32)
+    // 2. Build PGM index with error bound epsilon (e.g. 16 or 32)
     let pgm = PgmIndex::build(data, 16);
 
-    // 3. Point lookup (O(log S + log epsilon))
+    // 3. Exact point lookup (O(log S + log epsilon))
     match pgm.find(1500) {
         Some(index) => println!("Found key at position: {}", index),
         None => println!("Key not present in dataset"),
     }
 
-    // 4. Inspect memory overhead
+    // 4. Predecessor / Lower Bound search (first element >= target)
+    let lb_idx = pgm.lower_bound(1200);
+    println!("Lower bound for 1200 is at index: {} (value: {})", lb_idx, pgm.data[lb_idx]);
+
+    // 5. Zero-copy Range Query (slice scan)
+    let slice = pgm.range(110..=2000);
+    println!("Keys in range [110, 2000]: {:?}", slice);
+
+    // 6. Inspect memory overhead
     println!("Total segments created: {}", pgm.segments.len());
     println!("Index-only memory: {} bytes", pgm.index_only_bytes());
 }
@@ -236,6 +261,21 @@ cargo run --release
 - **Kraska et al. (2018)**: *"The Case for Learned Index Structures"* (SIGMOD 2018) – [arXiv:1712.01208](https://arxiv.org/abs/1712.01208). Seminal paper proving that sorted indexes can be modeled as cumulative distribution function (CDF) regressions.
 - **Ferragina & Vinciguerra (2020)**: *"The PGM-index: a fully-dynamic compressed learned index with provable worst-case bounds"* (PVLDB 2020) – [PVLDB (PDF)](https://www.vldb.org/pvldb/vol13/p1162-ferragina.pdf) / [arXiv:1910.06169](https://arxiv.org/abs/1910.06169). Establishes optimal piecewise linear approximation (PLA) under bounded error corridors $\epsilon$.
 - **Ferragina & Vinciguerra (2020)**: Reference C++ PGM implementation & resources – [pgm.di.unipi.it](https://pgm.di.unipi.it/) / [GitHub: gvinciguerra/PGM-index](https://github.com/gvinciguerra/PGM-index).
+
+### Referenced Repositories & Implementations
+- **[gvinciguerra/PGM-index](https://github.com/gvinciguerra/PGM-index)**: Official C++ reference implementation of the Piecewise Geometric Model index.
+- **[std::collections::BTreeMap](https://doc.rust-lang.org/std/collections/struct.BTreeMap.html)**: Rust Standard Library B-Tree implementation.
+- **[slice::binary_search](https://doc.rust-lang.org/std/primitive.slice.html#method.binary_search)**: Rust Standard Library core slice binary search implementation.
+- **[facebook/rocksdb](https://github.com/facebook/rocksdb)**: High-performance embedded key-value database using LSM-Trees and [BlockBasedTable format](https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format).
+- **[scylladb/scylladb](https://github.com/scylladb/scylladb)**: Low-latency NoSQL columnar database written in C++.
+- **[google/leveldb](https://github.com/google/leveldb)**: Foundational LSM-Tree storage engine written by Sanjay Ghemawat and Jeff Dean.
+- **[duckdb/duckdb](https://github.com/duckdb/duckdb)**: High-performance embedded analytical columnar database.
+- **[ClickHouse/ClickHouse](https://github.com/ClickHouse/ClickHouse)**: High-performance columnar database management system for real-time analytics.
+- **[apache/parquet-format](https://github.com/apache/parquet-format)**: Open-source columnar storage format for deep nested and flat record data.
+
+### Historical Documentation & Version Tracking
+- **[v0.1.1 Documentation Archive](docs/history/README_v0.1.1.md)**: Preserves the initial v0.1.1 documentation, focusing strictly on point query lookups (`find`) against `BTreeMap` prior to the introduction of `slice::binary_search` baselines, `lower_bound`, and range scans.
+
 
 ---
 
