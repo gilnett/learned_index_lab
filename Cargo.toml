@@ -1,6 +1,6 @@
 [package]
 name = "learned-index"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["Gilnett"]
 description = "High-performance Piecewise Geometric Model (PGM) learned index implementation in pure Rust with strict epsilon error guarantees."
