@@ -2,7 +2,7 @@
 // Multi-Target Isolated Benchmark Harness with Target Selection and Statistical Aggregation
 // Targets: BTreeMap, Flat Slice, Eytzinger Layout, PGM-Index
 
-use learned_index::{EytzingerSearch, PgmIndex};
+use learned_index_lab::{EytzingerSearch, PgmIndex};
 use std::collections::BTreeMap;
 use std::time::Instant;
 

@@ -212,7 +212,7 @@ impl PgmIndex {
     ///
     /// # Example
     /// ```rust
-    /// use learned_index::PgmIndex;
+    /// use learned_index_lab::PgmIndex;
     ///
     /// let data = vec![10, 20, 30, 40, 50, 60, 70];
     /// let pgm = PgmIndex::build(data, 16);
