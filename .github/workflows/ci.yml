@@ -28,11 +28,11 @@ jobs:
       - name: Check compilation
         run: cargo check --verbose
 
-      - name: Run unit & doc tests (debug)
-        run: cargo test --verbose
+      - name: Run unit & doc tests (debug, isolated)
+        run: cargo test --verbose -- --test-threads=1
 
-      - name: Run unit & doc tests (release)
-        run: cargo test --release --verbose
+      - name: Run unit & doc tests (release, isolated)
+        run: cargo test --release --verbose -- --test-threads=1
 
   lint-and-docs:
     name: Clippy, Format & Documentation
