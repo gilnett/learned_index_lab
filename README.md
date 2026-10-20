@@ -1,8 +1,8 @@
-# Learned Index Lab: Piecewise Geometric Model (PGM-Index) in Rust
+# Learned Index: Piecewise Geometric Model (PGM-Index) in Rust
 
-[![CI](https://github.com/gilnett/learned_index_lab/actions/workflows/ci.yml/badge.svg)](https://github.com/gilnett/learned_index_lab/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/learned_index_lab.svg)](https://crates.io/crates/learned_index_lab)
-[![Docs.rs](https://docs.rs/learned_index_lab/badge.svg)](https://docs.rs/learned_index_lab)
+[![CI](https://github.com/gilnett/learned-index/actions/workflows/ci.yml/badge.svg)](https://github.com/gilnett/learned-index/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/learned-index.svg)](https://crates.io/crates/learned-index)
+[![Docs.rs](https://docs.rs/learned-index/badge.svg)](https://docs.rs/learned-index)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-gilnet-F16061?style=flat&logo=ko-fi&logoColor=white)](https://ko-fi.com/gilnet)
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-gilnett-EA4AAA?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/gilnett)
@@ -16,7 +16,7 @@ This repository demonstrates the paradigm shift away from traditional comparison
 > - The foundational concept of **Learned Index Structures** was originated by **Tim Kraska, Alex Beutel, Ed H. Chi, Jeffrey Dean, and Neoklis Polyzotis** (MIT / Google) in their landmark paper [*"The Case for Learned Index Structures"* (SIGMOD 2018)](https://arxiv.org/abs/1712.01208).
 > - The **Piecewise Geometric Model Index (PGM-index)** and its optimal streaming piecewise linear approximation (PLA) algorithm were invented and proven by **Paolo Ferragina and Giorgio Vinciguerra** (University of Pisa) in [*"The PGM-index: a fully-dynamic compressed learned index with provable worst-case bounds"* (PVLDB 2020)](https://www.vldb.org/pvldb/vol13/p1162-ferragina.pdf) ([arXiv:1910.06169](https://arxiv.org/abs/1910.06169), official site: [pgm.di.unipi.it](https://pgm.di.unipi.it/), C++ repository: [gvinciguerra/PGM-index](https://github.com/gvinciguerra/PGM-index)).
 > 
-> This repository (`learned_index_lab`) is an independent, clean-room educational and production-oriented implementation in pure safe Rust, built to explore, benchmark, and evaluate learned indexing mechanics within the modern systems ecosystem.
+> This repository (`learned-index`) is an independent, clean-room educational and production-oriented implementation in pure safe Rust, built to explore, benchmark, and evaluate learned indexing mechanics within the modern systems ecosystem.
 
 ---
 
@@ -92,7 +92,7 @@ During point lookup:
 
 ## Architectural Comparison & Hardware Dynamics
 
-Starting with v0.2.0, `learned_index_lab` now evaluates PGM against **both** common baseline approaches:
+Starting with v0.2.0, `learned-index` now evaluates PGM against **both** common baseline approaches:
 1. [**`std::collections::BTreeMap`**](https://doc.rust-lang.org/std/collections/struct.BTreeMap.html): The standard library mutable, dynamic pointer-based search tree.
 2. [**`Flat slice::binary_search`**](https://doc.rust-lang.org/std/primitive.slice.html#method.binary_search): The standard library immutable baseline (contiguous array binary search).
 
@@ -200,10 +200,10 @@ Forwarding Information Bases (FIB) at 100+ Gbps line rates require deterministic
 
 ## Quickstart & Code Example
 
-Add `learned_index_lab` to your `Cargo.toml`:
+Add `learned-index` to your `Cargo.toml`:
 
 ```rust
-use learned_index_lab::PgmIndex;
+use learned_index::PgmIndex;
 
 fn main() {
     // 1. Prepare sorted dataset
@@ -242,8 +242,8 @@ To verify the test suite and run the full 10-run statistical benchmark on your o
 
 ```bash
 # Clone the repository
-git clone https://github.com/gilnett/learned_index_lab.git
-cd learned_index_lab
+git clone https://github.com/gilnett/learned-index.git
+cd learned-index
 
 # Run unit tests covering edge cases, gaps, and duplicates
 cargo test

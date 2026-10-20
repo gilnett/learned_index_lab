@@ -1,4 +1,4 @@
-// Copyright (c) Learned Index Lab
+// Copyright (c) Learned Index
 // Implementation of Piecewise Geometric Model Index (PGM-Index)
 // Optimal Piecewise Linear Approximation (PLA) in single streaming pass
 
@@ -206,7 +206,7 @@ impl PgmIndex {
     ///
     /// # Example
     /// ```rust
-    /// use learned_index_lab::PgmIndex;
+    /// use learned_index::PgmIndex;
     ///
     /// let data = vec![10, 20, 30, 40, 50, 60, 70];
     /// let pgm = PgmIndex::build(data, 16);

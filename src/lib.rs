@@ -1,4 +1,4 @@
-//! # Learned Index Lab: Piecewise Geometric Model (PGM-Index)
+//! # Learned Index: Piecewise Geometric Model (PGM-Index)
 //!
 //! A zero-dependency, pure Rust implementation of Piecewise Geometric Model (PGM)
 //! Learned Index Structures with provable epsilon error guarantees.
@@ -6,7 +6,7 @@
 //! ## Quickstart
 //!
 //! ```rust
-//! use learned_index_lab::PgmIndex;
+//! use learned_index::PgmIndex;
 //!
 //! let data = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 //! let pgm = PgmIndex::build(data, 16);
