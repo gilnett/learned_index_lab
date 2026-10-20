@@ -698,37 +698,6 @@ fn print_comparative_table(title: &str, summaries: &[TargetAggregateSummary]) {
             s.mean_total_latency_ns
         );
     }
-    // Bottom row: average across targets
-    let avg_build = mean(
-        &summaries
-            .iter()
-            .map(|s| s.mean_build_ms)
-            .collect::<Vec<_>>(),
-    );
-    let avg_hit = mean(&summaries.iter().map(|s| s.mean_hit_ns).collect::<Vec<_>>());
-    let avg_miss = mean(&summaries.iter().map(|s| s.mean_miss_ns).collect::<Vec<_>>());
-    let avg_lb = mean(&summaries.iter().map(|s| s.mean_lb_ns).collect::<Vec<_>>());
-    let avg_mem = mean(
-        &summaries
-            .iter()
-            .map(|s| s.mean_memory_kb)
-            .collect::<Vec<_>>(),
-    );
-    let avg_tot = mean(
-        &summaries
-            .iter()
-            .map(|s| s.mean_total_latency_ns)
-            .collect::<Vec<_>>(),
-    );
-    let avg_mem_str = if avg_mem >= 1024.0 {
-        format!("{:.2} MB", avg_mem / 1024.0)
-    } else {
-        format!("{:.1} KB", avg_mem)
-    };
-    println!(
-        "| **MOYENNE GLOBALE** | {:>8.2} ms | {:>9.1} ns | {:>10.1} ns | {:>9.1} ns | {:>12} | **{:>9.1} ns** |",
-        avg_build, avg_hit, avg_miss, avg_lb, avg_mem_str, avg_tot
-    );
     println!();
 }
 
