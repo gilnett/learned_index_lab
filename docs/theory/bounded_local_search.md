@@ -24,4 +24,5 @@ In a Piecewise Geometric Model (PGM-Index), lookup combines global mathematical 
 
 - **Foundational Paper**: Ferragina, P., & Vinciguerra, G. (2020). *"The PGM-index: a fully-dynamic compressed learned index with provable worst-case bounds"*, PVLDB 13(8): 1162–1175.
   - [PVLDB Publication (PDF)](https://www.vldb.org/pvldb/vol13/p1162-ferragina.pdf)
-  - [arXiv:1910.06169](https://arxiv.org/abs/1910.06169)
+  - [Direct arXiv PDF Download](https://arxiv.org/pdf/1910.06169)
+  - [arXiv:1910.06169 (Preprint Abstract)](https://arxiv.org/abs/1910.06169)

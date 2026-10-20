@@ -16,5 +16,6 @@ By fitting continuous mathematical models to the CDF, keys are mapped directly t
 ## Full Research Papers & Resources
 
 - **Seminal Paper**: Kraska, T., Beutel, A., Chi, E. H., Dean, J., & Polyzotis, N. (2018). *"The Case for Learned Index Structures"*, ACM SIGMOD.
-  - [arXiv:1712.01208 (Full PDF)](https://arxiv.org/abs/1712.01208)
+  - [Direct PDF Download (arXiv)](https://arxiv.org/pdf/1712.01208)
+  - [arXiv:1712.01208 (Abstract & Citation)](https://arxiv.org/abs/1712.01208)
 - **MIT Data Systems Group**: [The Case for Learned Index Structures Overview](https://dsg.csail.mit.edu/projects/learnedindexes/)
