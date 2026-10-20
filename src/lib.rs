@@ -15,6 +15,8 @@
 //! assert_eq!(pgm.find(99), None);
 //! ```
 
+pub mod eytzinger;
 pub mod pgm;
 
+pub use eytzinger::EytzingerSearch;
 pub use pgm::{PgmIndex, Segment};

@@ -1,7 +1,7 @@
 // Copyright (c) Learned Index
-// 10-Run Statistical Benchmark Harness: BTreeMap vs Flat Slice vs PGM-Index
+// 10-Run Statistical Benchmark Harness: BTreeMap vs Flat Slice vs Eytzinger vs PGM-Index
 
-use learned_index::PgmIndex;
+use learned_index::{EytzingerSearch, PgmIndex};
 use std::collections::BTreeMap;
 use std::time::Instant;
 
@@ -117,19 +117,33 @@ fn generate_internal_miss_queries(dataset: &[u64], count: usize, rng: &mut Rng) 
     queries
 }
 
+fn clear_cpu_cache() {
+    // Allocate 32 MB buffer and stride across cache lines to flush L1/L2/L3 caches
+    let mut dummy = vec![0u8; 32 * 1024 * 1024];
+    for byte in dummy.iter_mut().step_by(64) {
+        *byte = byte.wrapping_add(1);
+    }
+    std::hint::black_box(&dummy);
+}
+
 #[derive(Default, Clone, Copy)]
 struct RunMetric {
     btree_build_ms: f64,
+    eytzinger_build_ms: f64,
     pgm_build_ms: f64,
     btree_hit_ns: f64,
     slice_hit_ns: f64,
+    eytzinger_hit_ns: f64,
     pgm_hit_ns: f64,
     btree_miss_ns: f64,
     slice_miss_ns: f64,
+    eytzinger_miss_ns: f64,
     pgm_miss_ns: f64,
     slice_lb_ns: f64,
+    eytzinger_lb_ns: f64,
     pgm_lb_ns: f64,
     pgm_segments: usize,
+    eytzinger_kb: f64,
     pgm_index_kb: f64,
 }
 
@@ -163,7 +177,8 @@ fn run_single_iteration(
 
     let miss_queries = generate_internal_miss_queries(&dataset, n_queries / 2, &mut rng);
 
-    // 1. BTreeMap
+    // 1. BTreeMap (Isolated measurement)
+    clear_cpu_cache();
     let t0 = Instant::now();
     let mut btree = BTreeMap::new();
     for (idx, &k) in dataset.iter().enumerate() {
@@ -192,7 +207,8 @@ fn run_single_iteration(
     std::hint::black_box(btree_misses);
     let btree_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
 
-    // 2. Flat Slice binary_search (Standard immutable baseline)
+    // 2. Flat Slice binary_search (Standard immutable baseline, isolated)
+    clear_cpu_cache();
     let t0 = Instant::now();
     let mut slice_hits = 0;
     for &k in &hit_queries {
@@ -213,7 +229,53 @@ fn run_single_iteration(
     std::hint::black_box(slice_misses);
     let slice_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
 
-    // 3. PGM-Index (Piecewise Geometric Model)
+    let t0 = Instant::now();
+    let mut slice_lb_sum = 0usize;
+    for &k in &hit_queries {
+        slice_lb_sum += dataset.partition_point(|&x| x < std::hint::black_box(k));
+    }
+    std::hint::black_box(slice_lb_sum);
+    let slice_lb_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+    // 3. EytzingerSearch (Breadth-First cache-conscious layout, isolated)
+    clear_cpu_cache();
+    let t0 = Instant::now();
+    let eyt = EytzingerSearch::build(&dataset);
+    std::hint::black_box(&eyt);
+    let eytzinger_build_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+    let t0 = Instant::now();
+    let mut eyt_hits = 0;
+    for &k in &hit_queries {
+        if eyt.contains(std::hint::black_box(k)) {
+            eyt_hits += 1;
+        }
+    }
+    std::hint::black_box(eyt_hits);
+    let eytzinger_hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+    let t0 = Instant::now();
+    let mut eyt_misses = 0;
+    for &k in &miss_queries {
+        if eyt.contains(std::hint::black_box(k)) {
+            eyt_misses += 1;
+        }
+    }
+    std::hint::black_box(eyt_misses);
+    let eytzinger_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
+
+    let t0 = Instant::now();
+    let mut eyt_lb_sum = 0u64;
+    for &k in &hit_queries {
+        if let Some(val) = eyt.lower_bound(std::hint::black_box(k)) {
+            eyt_lb_sum += val;
+        }
+    }
+    std::hint::black_box(eyt_lb_sum);
+    let eytzinger_lb_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+    // 4. PGM-Index (Piecewise Geometric Model, isolated)
+    clear_cpu_cache();
     let t0 = Instant::now();
     let pgm = PgmIndex::build(dataset.clone(), epsilon);
     std::hint::black_box(&pgm);
@@ -239,42 +301,46 @@ fn run_single_iteration(
     std::hint::black_box(pgm_misses);
     let pgm_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
 
-    // 4. Lower Bound / Predecessor Search
-    let t0 = Instant::now();
-    let mut slice_lb_sum = 0usize;
-    for &k in &hit_queries {
-        slice_lb_sum += dataset.partition_point(|&x| x < std::hint::black_box(k));
-    }
-    std::hint::black_box(slice_lb_sum);
-    let slice_lb_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
-
     let t0 = Instant::now();
     let mut pgm_lb_sum = 0usize;
+    let mut pgm_lb_val_sum = 0u64;
     for &k in &hit_queries {
-        pgm_lb_sum += pgm.lower_bound(std::hint::black_box(k));
+        let idx = pgm.lower_bound(std::hint::black_box(k));
+        pgm_lb_sum += idx;
+        pgm_lb_val_sum += dataset[idx];
     }
     std::hint::black_box(pgm_lb_sum);
+    std::hint::black_box(pgm_lb_val_sum);
     let pgm_lb_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
 
+    // Strict Cross-Baseline Correctness Verification
     assert_eq!(btree_hits, pgm_hits);
     assert_eq!(slice_hits, pgm_hits);
+    assert_eq!(eyt_hits, pgm_hits);
     assert_eq!(btree_misses, 0);
     assert_eq!(slice_misses, 0);
+    assert_eq!(eyt_misses, 0);
     assert_eq!(pgm_misses, 0);
     assert_eq!(slice_lb_sum, pgm_lb_sum);
+    assert_eq!(eyt_lb_sum, pgm_lb_val_sum);
 
     RunMetric {
         btree_build_ms,
+        eytzinger_build_ms,
         pgm_build_ms,
         btree_hit_ns,
         slice_hit_ns,
+        eytzinger_hit_ns,
         pgm_hit_ns,
         btree_miss_ns,
         slice_miss_ns,
+        eytzinger_miss_ns,
         pgm_miss_ns,
         slice_lb_ns,
+        eytzinger_lb_ns,
         pgm_lb_ns,
         pgm_segments: pgm.segments.len(),
+        eytzinger_kb: eyt.memory_bytes() as f64 / 1024.0,
         pgm_index_kb: pgm.index_only_bytes() as f64 / 1024.0,
     }
 }
@@ -287,18 +353,22 @@ fn execute_suite(
     n_queries: usize,
     num_runs: usize,
 ) {
-    println!("\n{}", "=".repeat(105));
+    println!("\n{}", "=".repeat(125));
     println!(
         ">>> BENCHMARK SUITE ({} CONSECUTIVE RUNS) : {} [epsilon = {}]",
         num_runs, title, epsilon
     );
-    println!("{}", "=".repeat(105));
+    println!("{}", "=".repeat(125));
 
     println!(
-        "{:>5} | {:>14} | {:>22} | {:>22} | {:>8}",
-        "Run", "Build (BTree/PGM)", "Hit (BTree/Slice/PGM)", "Miss (BTree/Slice/PGM)", "Segments"
+        "{:>5} | {:>22} | {:>35} | {:>35} | {:>8}",
+        "Run",
+        "Build (BTree/Eyt/PGM)",
+        "Hit (BTree/Slice/Eyt/PGM)",
+        "Miss (BTree/Slice/Eyt/PGM)",
+        "Segments"
     );
-    println!("{}", "-".repeat(105));
+    println!("{}", "-".repeat(125));
 
     let mut metrics = Vec::with_capacity(num_runs);
 
@@ -307,54 +377,69 @@ fn execute_suite(
         let m = run_single_iteration(dist, n_items, n_queries, seed, epsilon);
 
         println!(
-            "#{:02}  | {:>5.1}ms / {:>4.1}ms | {:>4.0}ns / {:>4.0}ns / {:>4.0}ns | {:>4.0}ns / {:>4.0}ns / {:>4.0}ns | {:>6}",
+            "#{:02}  | {:>4.0}ms/{:>4.0}ms/{:>4.1}ms | {:>4.0}ns/{:>4.0}ns/{:>4.0}ns/{:>4.0}ns | {:>4.0}ns/{:>4.0}ns/{:>4.0}ns/{:>4.0}ns | {:>6}",
             run,
             m.btree_build_ms,
+            m.eytzinger_build_ms,
             m.pgm_build_ms,
             m.btree_hit_ns,
             m.slice_hit_ns,
+            m.eytzinger_hit_ns,
             m.pgm_hit_ns,
             m.btree_miss_ns,
             m.slice_miss_ns,
+            m.eytzinger_miss_ns,
             m.pgm_miss_ns,
             m.pgm_segments
         );
         metrics.push(m);
     }
 
-    println!("{}", "-".repeat(105));
+    println!("{}", "-".repeat(125));
 
     let btree_builds: Vec<f64> = metrics.iter().map(|m| m.btree_build_ms).collect();
+    let eyt_builds: Vec<f64> = metrics.iter().map(|m| m.eytzinger_build_ms).collect();
     let pgm_builds: Vec<f64> = metrics.iter().map(|m| m.pgm_build_ms).collect();
     let btree_hits: Vec<f64> = metrics.iter().map(|m| m.btree_hit_ns).collect();
     let slice_hits: Vec<f64> = metrics.iter().map(|m| m.slice_hit_ns).collect();
+    let eyt_hits: Vec<f64> = metrics.iter().map(|m| m.eytzinger_hit_ns).collect();
     let pgm_hits: Vec<f64> = metrics.iter().map(|m| m.pgm_hit_ns).collect();
     let btree_misses: Vec<f64> = metrics.iter().map(|m| m.btree_miss_ns).collect();
     let slice_misses: Vec<f64> = metrics.iter().map(|m| m.slice_miss_ns).collect();
+    let eyt_misses: Vec<f64> = metrics.iter().map(|m| m.eytzinger_miss_ns).collect();
     let pgm_misses: Vec<f64> = metrics.iter().map(|m| m.pgm_miss_ns).collect();
     let slice_lbs: Vec<f64> = metrics.iter().map(|m| m.slice_lb_ns).collect();
+    let eyt_lbs: Vec<f64> = metrics.iter().map(|m| m.eytzinger_lb_ns).collect();
     let pgm_lbs: Vec<f64> = metrics.iter().map(|m| m.pgm_lb_ns).collect();
 
     let speedup_vs_btree = mean(&btree_hits) / mean(&pgm_hits);
     let speedup_vs_slice = mean(&slice_hits) / mean(&pgm_hits);
-    let speedup_lb = mean(&slice_lbs) / mean(&pgm_lbs);
+    let speedup_vs_eyt = mean(&eyt_hits) / mean(&pgm_hits);
+    let speedup_lb_slice = mean(&slice_lbs) / mean(&pgm_lbs);
+    let speedup_lb_eyt = mean(&eyt_lbs) / mean(&pgm_lbs);
 
-    println!("STATISTICAL SUMMARY (AVERAGE OVER {} RUNS):", num_runs);
     println!(
-        "├─ Build Time: BTree = {:.2} ms | PGM = {:.2} ms (PGM {:.1}x faster)",
-        mean(&btree_builds),
-        mean(&pgm_builds),
-        mean(&btree_builds) / mean(&pgm_builds)
+        "STATISTICAL SUMMARY (AVERAGE OVER {} RUNS, ISOLATED CACHE):",
+        num_runs
     );
     println!(
-        "├─ Hit Latency: BTree = {:.1} ns | Slice binary_search = {:.1} ns | PGM = {:.1} ns",
+        "├─ Build Time: BTree = {:.2} ms | Eytzinger = {:.2} ms | PGM = {:.2} ms (PGM {:.1}x vs BTree, {:.1}x vs Eyt)",
+        mean(&btree_builds),
+        mean(&eyt_builds),
+        mean(&pgm_builds),
+        mean(&btree_builds) / mean(&pgm_builds),
+        mean(&eyt_builds) / mean(&pgm_builds)
+    );
+    println!(
+        "├─ Hit Latency: BTree = {:.1} ns | Slice = {:.1} ns | Eytzinger = {:.1} ns | PGM = {:.1} ns",
         mean(&btree_hits),
         mean(&slice_hits),
+        mean(&eyt_hits),
         mean(&pgm_hits)
     );
     println!(
-        "│   • PGM Speedup: {:.2}x vs BTree | {:.2}x vs Flat Slice",
-        speedup_vs_btree, speedup_vs_slice
+        "│   • PGM Speedup: {:.2}x vs BTree | {:.2}x vs Flat Slice | {:.2}x vs Eytzinger",
+        speedup_vs_btree, speedup_vs_slice, speedup_vs_eyt
     );
     println!(
         "│   • PGM Hit Range: Min = {:.1} ns | Max = {:.1} ns",
@@ -362,19 +447,23 @@ fn execute_suite(
         max_val(&pgm_hits)
     );
     println!(
-        "├─ Miss Latency: BTree = {:.1} ns | Slice binary_search = {:.1} ns | PGM = {:.1} ns",
+        "├─ Miss Latency: BTree = {:.1} ns | Slice = {:.1} ns | Eytzinger = {:.1} ns | PGM = {:.1} ns",
         mean(&btree_misses),
         mean(&slice_misses),
+        mean(&eyt_misses),
         mean(&pgm_misses)
     );
     println!(
-        "├─ Lower Bound Latency: Slice partition_point = {:.1} ns | PGM = {:.1} ns (PGM {:.2}x faster)",
+        "├─ Lower Bound Latency: Slice = {:.1} ns | Eytzinger = {:.1} ns | PGM = {:.1} ns (PGM {:.2}x vs Slice, {:.2}x vs Eyt)",
         mean(&slice_lbs),
+        mean(&eyt_lbs),
         mean(&pgm_lbs),
-        speedup_lb
+        speedup_lb_slice,
+        speedup_lb_eyt
     );
     println!(
-        "├─ Metadata Memory Footprint: BTree ≈ 45.78 MB | Slice = 0 KB | PGM ≈ {:.1} KB",
+        "├─ Memory Overhead: BTree ≈ 45.78 MB | Slice = 0 KB | Eytzinger ≈ {:.2} MB | PGM ≈ {:.1} KB",
+        mean(&metrics.iter().map(|m| m.eytzinger_kb).collect::<Vec<_>>()) / 1024.0,
         mean(&metrics.iter().map(|m| m.pgm_index_kb).collect::<Vec<_>>())
     );
     println!(
@@ -384,11 +473,11 @@ fn execute_suite(
 }
 
 fn main() {
-    println!("{}", "=".repeat(105));
+    println!("{}", "=".repeat(125));
     println!(
-        "   10-RUN STATISTICAL BENCHMARK: BTREEMAP VS FLAT SLICE VS PGM-INDEX (1,000,000 KEYS)"
+        "   10-RUN STATISTICAL BENCHMARK: BTREEMAP VS FLAT SLICE VS EYTZINGER VS PGM-INDEX (1,000,000 KEYS)"
     );
-    println!("{}", "=".repeat(105));
+    println!("{}", "=".repeat(125));
 
     const N_ITEMS: usize = 1_000_000;
     const N_QUERIES: usize = 100_000;
