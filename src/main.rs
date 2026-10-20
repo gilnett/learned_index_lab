@@ -1,7 +1,7 @@
-// Copyright (c) Learned Index Lab
+// Copyright (c) Learned Index
 // 10-Run Statistical Benchmark Harness: BTreeMap vs Flat Slice vs PGM-Index
 
-use learned_index_lab::PgmIndex;
+use learned_index::PgmIndex;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
