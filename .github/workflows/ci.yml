@@ -7,12 +7,35 @@ on:
     branches: [ main ]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  check-and-test:
-    name: Check, Test, Clippy & Format
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check compilation
+        run: cargo check --verbose
+
+      - name: Run unit & doc tests (debug)
+        run: cargo test --verbose
+
+      - name: Run unit & doc tests (release)
+        run: cargo test --release --verbose
+
+  lint-and-docs:
+    name: Clippy, Format & Documentation
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -23,14 +46,13 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Check compilation
-        run: cargo check --verbose
-
-      - name: Run unit & doc tests
-        run: cargo test --verbose
-
       - name: Run Clippy lints
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Verify code formatting
         run: cargo fmt --check
+
+      - name: Verify documentation builds without warnings
+        run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"

@@ -366,6 +366,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(expected = "PGM-Index requires pre-sorted data")]
     fn test_unsorted_data_panics_in_debug() {
         let _ = PgmIndex::build(vec![3, 1, 2], 4);
