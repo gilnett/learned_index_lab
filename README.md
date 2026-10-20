@@ -1,8 +1,8 @@
 # Learned Index: Piecewise Geometric Model (PGM-Index) in Rust
 
-[![CI](https://github.com/gilnett/learned_index_lab/actions/workflows/ci.yml/badge.svg)](https://github.com/gilnett/learned_index_lab/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/learned_index_lab.svg)](https://crates.io/crates/learned_index_lab)
-[![Docs.rs](https://docs.rs/learned_index_lab/badge.svg)](https://docs.rs/learned_index_lab)
+[![CI](https://github.com/gilnett/learned-index/actions/workflows/ci.yml/badge.svg)](https://github.com/gilnett/learned-index/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/learned-index.svg)](https://crates.io/crates/learned-index)
+[![Docs.rs](https://docs.rs/learned-index/badge.svg)](https://docs.rs/learned-index)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-gilnet-F16061?style=flat&logo=ko-fi&logoColor=white)](https://ko-fi.com/gilnet)
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-gilnett-EA4AAA?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/gilnett)
@@ -115,8 +115,8 @@ The v0.3.0 test suite and benchmark harness support strict single-threaded isola
 
 ```bash
 # Clone the repository
-git clone https://github.com/gilnett/learned_index_lab.git
-cd learned_index_lab
+git clone https://github.com/gilnett/learned-index.git
+cd learned-index
 
 # Run the unit test suite with thread isolation
 cargo test --release -- --test-threads=1
