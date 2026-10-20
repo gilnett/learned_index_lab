@@ -1,10 +1,12 @@
 // Copyright (c) Learned Index
-// 10-Run Statistical Benchmark Harness: BTreeMap vs Flat Slice vs Eytzinger vs PGM-Index
+// Multi-Target Isolated Benchmark Harness with Target Selection and Statistical Aggregation
+// Targets: BTreeMap, Flat Slice, Eytzinger Layout, PGM-Index
 
 use learned_index::{EytzingerSearch, PgmIndex};
 use std::collections::BTreeMap;
 use std::time::Instant;
 
+/// Minimal PRNG (Xorshift64) for reproducible dataset and query generation.
 struct Rng {
     state: u64,
 }
@@ -28,11 +30,29 @@ impl Rng {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DistributionType {
     DenseTimestamp,
     UniformSparse,
     ClusteredLognormal,
+}
+
+impl DistributionType {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::DenseTimestamp => "Dense Sequential / Time-Series",
+            Self::UniformSparse => "Uniform Sparse Random Distribution",
+            Self::ClusteredLognormal => "Heavy-Tailed Lognormal Distribution",
+        }
+    }
+
+    fn default_epsilon(&self) -> usize {
+        match self {
+            Self::DenseTimestamp => 32,
+            Self::UniformSparse => 16,
+            Self::ClusteredLognormal => 16,
+        }
+    }
 }
 
 fn generate_dataset(dist: DistributionType, count: usize, seed: u64) -> Vec<u64> {
@@ -106,7 +126,7 @@ fn generate_internal_miss_queries(dataset: &[u64], count: usize, rng: &mut Rng) 
         }
     }
 
-    // Fallback: uniform sampling strictly within [min_k, max_k] that is absent from dataset
+    // Fallback: uniform sampling strictly within [min_k, max_k] absent from dataset
     while queries.len() < count {
         let candidate = min_k + (rng.next_u64() % (span + 1));
         if dataset.binary_search(&candidate).is_err() {
@@ -117,8 +137,8 @@ fn generate_internal_miss_queries(dataset: &[u64], count: usize, rng: &mut Rng) 
     queries
 }
 
+/// Purges CPU caches (L1, L2, L3) via a 32MB buffer eviction barrier.
 fn clear_cpu_cache() {
-    // Allocate 32 MB buffer and stride across cache lines to flush L1/L2/L3 caches
     let mut dummy = vec![0u8; 32 * 1024 * 1024];
     for byte in dummy.iter_mut().step_by(64) {
         *byte = byte.wrapping_add(1);
@@ -126,390 +146,817 @@ fn clear_cpu_cache() {
     std::hint::black_box(&dummy);
 }
 
-#[derive(Default, Clone, Copy)]
-struct RunMetric {
-    btree_build_ms: f64,
-    eytzinger_build_ms: f64,
-    pgm_build_ms: f64,
-    btree_hit_ns: f64,
-    slice_hit_ns: f64,
-    eytzinger_hit_ns: f64,
-    pgm_hit_ns: f64,
-    btree_miss_ns: f64,
-    slice_miss_ns: f64,
-    eytzinger_miss_ns: f64,
-    pgm_miss_ns: f64,
-    slice_lb_ns: f64,
-    eytzinger_lb_ns: f64,
-    pgm_lb_ns: f64,
-    pgm_segments: usize,
-    eytzinger_kb: f64,
-    pgm_index_kb: f64,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum BenchmarkTarget {
+    BTree,
+    Slice,
+    Eytzinger,
+    Pgm,
+}
+
+impl BenchmarkTarget {
+    const ALL: [BenchmarkTarget; 4] = [
+        BenchmarkTarget::BTree,
+        BenchmarkTarget::Slice,
+        BenchmarkTarget::Eytzinger,
+        BenchmarkTarget::Pgm,
+    ];
+
+    fn name(&self) -> &'static str {
+        match self {
+            Self::BTree => "BTreeMap",
+            Self::Slice => "Flat Slice",
+            Self::Eytzinger => "Eytzinger",
+            Self::Pgm => "PGM-Index",
+        }
+    }
+
+    fn from_str_opt(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "btree" | "btreemap" | "b-tree" => Some(Self::BTree),
+            "slice" | "flat" | "flatslice" | "binary_search" => Some(Self::Slice),
+            "eyt" | "eytzinger" => Some(Self::Eytzinger),
+            "pgm" | "pgmindex" | "pgm-index" | "learned" => Some(Self::Pgm),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct TargetRunMetric {
+    build_ms: f64,
+    hit_ns: f64,
+    miss_ns: f64,
+    lower_bound_ns: f64,
+    memory_kb: f64,
+    segments: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+struct TargetAggregateSummary {
+    target: Option<BenchmarkTarget>,
+    label: String,
+    mean_build_ms: f64,
+    mean_hit_ns: f64,
+    mean_miss_ns: f64,
+    mean_lb_ns: f64,
+    mean_memory_kb: f64,
+    mean_segments: usize,
+    mean_total_latency_ns: f64,
 }
 
 fn mean(values: &[f64]) -> f64 {
-    values.iter().sum::<f64>() / values.len() as f64
+    if values.is_empty() {
+        0.0
+    } else {
+        values.iter().sum::<f64>() / values.len() as f64
+    }
 }
 
-fn min_val(values: &[f64]) -> f64 {
-    values.iter().copied().fold(f64::INFINITY, f64::min)
-}
-
-fn max_val(values: &[f64]) -> f64 {
-    values.iter().copied().fold(f64::NEG_INFINITY, f64::max)
-}
-
-fn run_single_iteration(
-    dist: DistributionType,
-    n_items: usize,
-    n_queries: usize,
-    seed: u64,
+/// Runs a single isolated benchmark for one specific target structure.
+fn run_isolated_target_benchmark(
+    target: BenchmarkTarget,
+    dataset: &[u64],
+    hit_queries: &[u64],
+    miss_queries: &[u64],
     epsilon: usize,
-) -> RunMetric {
-    let dataset = generate_dataset(dist, n_items, seed);
+) -> TargetRunMetric {
+    match target {
+        BenchmarkTarget::BTree => {
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut btree = BTreeMap::new();
+            for (idx, &k) in dataset.iter().enumerate() {
+                btree.insert(k, idx);
+            }
+            std::hint::black_box(&btree);
+            let build_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
-    let mut rng = Rng::new(seed + 10_000);
-    let mut hit_queries = Vec::with_capacity(n_queries / 2);
-    for _ in 0..(n_queries / 2) {
-        let idx = (rng.next_u64() as usize) % dataset.len();
-        hit_queries.push(dataset[idx]);
-    }
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut hits = 0;
+            for &k in hit_queries {
+                if btree.contains_key(&std::hint::black_box(k)) {
+                    hits += 1;
+                }
+            }
+            std::hint::black_box(hits);
+            let hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
 
-    let miss_queries = generate_internal_miss_queries(&dataset, n_queries / 2, &mut rng);
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut misses = 0;
+            for &k in miss_queries {
+                if btree.contains_key(&std::hint::black_box(k)) {
+                    misses += 1;
+                }
+            }
+            std::hint::black_box(misses);
+            let miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
 
-    // 1. BTreeMap (Isolated measurement)
-    clear_cpu_cache();
-    let t0 = Instant::now();
-    let mut btree = BTreeMap::new();
-    for (idx, &k) in dataset.iter().enumerate() {
-        btree.insert(k, idx);
-    }
-    std::hint::black_box(&btree);
-    let btree_build_ms = t0.elapsed().as_secs_f64() * 1000.0;
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut lb_sum = 0u64;
+            for &k in hit_queries {
+                if let Some((&val, _)) = btree.range(std::hint::black_box(k)..).next() {
+                    lb_sum += val;
+                }
+            }
+            std::hint::black_box(lb_sum);
+            let lower_bound_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
 
-    let t0 = Instant::now();
-    let mut btree_hits = 0;
-    for &k in &hit_queries {
-        if btree.contains_key(&std::hint::black_box(k)) {
-            btree_hits += 1;
+            assert_eq!(hits, hit_queries.len());
+            assert_eq!(misses, 0);
+
+            // BTreeMap nodes overhead: ~48 bytes per entry on 64-bit platforms
+            let memory_kb = (dataset.len() * 48) as f64 / 1024.0;
+
+            TargetRunMetric {
+                build_ms,
+                hit_ns,
+                miss_ns,
+                lower_bound_ns,
+                memory_kb,
+                segments: 0,
+            }
         }
-    }
-    std::hint::black_box(btree_hits);
-    let btree_hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+        BenchmarkTarget::Slice => {
+            // Flat Slice: Pre-sorted slice, zero build time
+            let build_ms = 0.0;
 
-    let t0 = Instant::now();
-    let mut btree_misses = 0;
-    for &k in &miss_queries {
-        if btree.contains_key(&std::hint::black_box(k)) {
-            btree_misses += 1;
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut hits = 0;
+            for &k in hit_queries {
+                if dataset.binary_search(&std::hint::black_box(k)).is_ok() {
+                    hits += 1;
+                }
+            }
+            std::hint::black_box(hits);
+            let hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut misses = 0;
+            for &k in miss_queries {
+                if dataset.binary_search(&std::hint::black_box(k)).is_ok() {
+                    misses += 1;
+                }
+            }
+            std::hint::black_box(misses);
+            let miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
+
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut lb_sum = 0u64;
+            for &k in hit_queries {
+                let idx = dataset.partition_point(|&x| x < std::hint::black_box(k));
+                if idx < dataset.len() {
+                    lb_sum += dataset[idx];
+                }
+            }
+            std::hint::black_box(lb_sum);
+            let lower_bound_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+            assert_eq!(hits, hit_queries.len());
+            assert_eq!(misses, 0);
+
+            TargetRunMetric {
+                build_ms,
+                hit_ns,
+                miss_ns,
+                lower_bound_ns,
+                memory_kb: 0.0,
+                segments: 0,
+            }
         }
-    }
-    std::hint::black_box(btree_misses);
-    let btree_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
+        BenchmarkTarget::Eytzinger => {
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let eyt = EytzingerSearch::build(dataset);
+            std::hint::black_box(&eyt);
+            let build_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
-    // 2. Flat Slice binary_search (Standard immutable baseline, isolated)
-    clear_cpu_cache();
-    let t0 = Instant::now();
-    let mut slice_hits = 0;
-    for &k in &hit_queries {
-        if dataset.binary_search(&std::hint::black_box(k)).is_ok() {
-            slice_hits += 1;
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut hits = 0;
+            for &k in hit_queries {
+                if eyt.contains(std::hint::black_box(k)) {
+                    hits += 1;
+                }
+            }
+            std::hint::black_box(hits);
+            let hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut misses = 0;
+            for &k in miss_queries {
+                if eyt.contains(std::hint::black_box(k)) {
+                    misses += 1;
+                }
+            }
+            std::hint::black_box(misses);
+            let miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
+
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut lb_sum = 0u64;
+            for &k in hit_queries {
+                if let Some(val) = eyt.lower_bound(std::hint::black_box(k)) {
+                    lb_sum += val;
+                }
+            }
+            std::hint::black_box(lb_sum);
+            let lower_bound_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+            assert_eq!(hits, hit_queries.len());
+            assert_eq!(misses, 0);
+
+            let memory_kb = eyt.memory_bytes() as f64 / 1024.0;
+
+            TargetRunMetric {
+                build_ms,
+                hit_ns,
+                miss_ns,
+                lower_bound_ns,
+                memory_kb,
+                segments: 0,
+            }
         }
-    }
-    std::hint::black_box(slice_hits);
-    let slice_hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+        BenchmarkTarget::Pgm => {
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let pgm = PgmIndex::build(dataset.to_vec(), epsilon);
+            std::hint::black_box(&pgm);
+            let build_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
-    let t0 = Instant::now();
-    let mut slice_misses = 0;
-    for &k in &miss_queries {
-        if dataset.binary_search(&std::hint::black_box(k)).is_ok() {
-            slice_misses += 1;
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut hits = 0;
+            for &k in hit_queries {
+                if pgm.find(std::hint::black_box(k)).is_some() {
+                    hits += 1;
+                }
+            }
+            std::hint::black_box(hits);
+            let hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut misses = 0;
+            for &k in miss_queries {
+                if pgm.find(std::hint::black_box(k)).is_some() {
+                    misses += 1;
+                }
+            }
+            std::hint::black_box(misses);
+            let miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
+
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut lb_sum = 0u64;
+            for &k in hit_queries {
+                let idx = pgm.lower_bound(std::hint::black_box(k));
+                if idx < dataset.len() {
+                    lb_sum += dataset[idx];
+                }
+            }
+            std::hint::black_box(lb_sum);
+            let lower_bound_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+            assert_eq!(hits, hit_queries.len());
+            assert_eq!(misses, 0);
+
+            let memory_kb = pgm.index_only_bytes() as f64 / 1024.0;
+            let segments = pgm.segments.len();
+
+            TargetRunMetric {
+                build_ms,
+                hit_ns,
+                miss_ns,
+                lower_bound_ns,
+                memory_kb,
+                segments,
+            }
         }
-    }
-    std::hint::black_box(slice_misses);
-    let slice_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
-
-    let t0 = Instant::now();
-    let mut slice_lb_sum = 0usize;
-    for &k in &hit_queries {
-        slice_lb_sum += dataset.partition_point(|&x| x < std::hint::black_box(k));
-    }
-    std::hint::black_box(slice_lb_sum);
-    let slice_lb_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
-
-    // 3. EytzingerSearch (Breadth-First cache-conscious layout, isolated)
-    clear_cpu_cache();
-    let t0 = Instant::now();
-    let eyt = EytzingerSearch::build(&dataset);
-    std::hint::black_box(&eyt);
-    let eytzinger_build_ms = t0.elapsed().as_secs_f64() * 1000.0;
-
-    let t0 = Instant::now();
-    let mut eyt_hits = 0;
-    for &k in &hit_queries {
-        if eyt.contains(std::hint::black_box(k)) {
-            eyt_hits += 1;
-        }
-    }
-    std::hint::black_box(eyt_hits);
-    let eytzinger_hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
-
-    let t0 = Instant::now();
-    let mut eyt_misses = 0;
-    for &k in &miss_queries {
-        if eyt.contains(std::hint::black_box(k)) {
-            eyt_misses += 1;
-        }
-    }
-    std::hint::black_box(eyt_misses);
-    let eytzinger_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
-
-    let t0 = Instant::now();
-    let mut eyt_lb_sum = 0u64;
-    for &k in &hit_queries {
-        if let Some(val) = eyt.lower_bound(std::hint::black_box(k)) {
-            eyt_lb_sum += val;
-        }
-    }
-    std::hint::black_box(eyt_lb_sum);
-    let eytzinger_lb_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
-
-    // 4. PGM-Index (Piecewise Geometric Model, isolated)
-    clear_cpu_cache();
-    let t0 = Instant::now();
-    let pgm = PgmIndex::build(dataset.clone(), epsilon);
-    std::hint::black_box(&pgm);
-    let pgm_build_ms = t0.elapsed().as_secs_f64() * 1000.0;
-
-    let t0 = Instant::now();
-    let mut pgm_hits = 0;
-    for &k in &hit_queries {
-        if pgm.find(std::hint::black_box(k)).is_some() {
-            pgm_hits += 1;
-        }
-    }
-    std::hint::black_box(pgm_hits);
-    let pgm_hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
-
-    let t0 = Instant::now();
-    let mut pgm_misses = 0;
-    for &k in &miss_queries {
-        if pgm.find(std::hint::black_box(k)).is_some() {
-            pgm_misses += 1;
-        }
-    }
-    std::hint::black_box(pgm_misses);
-    let pgm_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
-
-    let t0 = Instant::now();
-    let mut pgm_lb_sum = 0usize;
-    let mut pgm_lb_val_sum = 0u64;
-    for &k in &hit_queries {
-        let idx = pgm.lower_bound(std::hint::black_box(k));
-        pgm_lb_sum += idx;
-        pgm_lb_val_sum += dataset[idx];
-    }
-    std::hint::black_box(pgm_lb_sum);
-    std::hint::black_box(pgm_lb_val_sum);
-    let pgm_lb_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
-
-    // Strict Cross-Baseline Correctness Verification
-    assert_eq!(btree_hits, pgm_hits);
-    assert_eq!(slice_hits, pgm_hits);
-    assert_eq!(eyt_hits, pgm_hits);
-    assert_eq!(btree_misses, 0);
-    assert_eq!(slice_misses, 0);
-    assert_eq!(eyt_misses, 0);
-    assert_eq!(pgm_misses, 0);
-    assert_eq!(slice_lb_sum, pgm_lb_sum);
-    assert_eq!(eyt_lb_sum, pgm_lb_val_sum);
-
-    RunMetric {
-        btree_build_ms,
-        eytzinger_build_ms,
-        pgm_build_ms,
-        btree_hit_ns,
-        slice_hit_ns,
-        eytzinger_hit_ns,
-        pgm_hit_ns,
-        btree_miss_ns,
-        slice_miss_ns,
-        eytzinger_miss_ns,
-        pgm_miss_ns,
-        slice_lb_ns,
-        eytzinger_lb_ns,
-        pgm_lb_ns,
-        pgm_segments: pgm.segments.len(),
-        eytzinger_kb: eyt.memory_bytes() as f64 / 1024.0,
-        pgm_index_kb: pgm.index_only_bytes() as f64 / 1024.0,
     }
 }
 
-fn execute_suite(
-    title: &str,
+/// Executes isolated tests for each target across `num_runs` iterations, printing details and summary.
+fn execute_target_suite(
     dist: DistributionType,
+    targets: &[BenchmarkTarget],
     epsilon: usize,
     n_items: usize,
     n_queries: usize,
     num_runs: usize,
-) {
-    println!("\n{}", "=".repeat(125));
+) -> Vec<TargetAggregateSummary> {
+    println!("\n{}", "=".repeat(110));
     println!(
-        ">>> BENCHMARK SUITE ({} CONSECUTIVE RUNS) : {} [epsilon = {}]",
-        num_runs, title, epsilon
+        ">>> SUITE: {} [epsilon = {}, {} tests distincts par cible]",
+        dist.name(),
+        epsilon,
+        num_runs
     );
-    println!("{}", "=".repeat(125));
+    println!("{}", "=".repeat(110));
 
-    println!(
-        "{:>5} | {:>22} | {:>35} | {:>35} | {:>8}",
-        "Run",
-        "Build (BTree/Eyt/PGM)",
-        "Hit (BTree/Slice/Eyt/PGM)",
-        "Miss (BTree/Slice/Eyt/PGM)",
-        "Segments"
-    );
-    println!("{}", "-".repeat(125));
+    let mut summaries = Vec::new();
 
-    let mut metrics = Vec::with_capacity(num_runs);
-
-    for run in 1..=num_runs {
-        let seed = (run as u64) * 101 + 7;
-        let m = run_single_iteration(dist, n_items, n_queries, seed, epsilon);
-
+    for &target in targets {
         println!(
-            "#{:02}  | {:>4.0}ms/{:>4.0}ms/{:>4.1}ms | {:>4.0}ns/{:>4.0}ns/{:>4.0}ns/{:>4.0}ns | {:>4.0}ns/{:>4.0}ns/{:>4.0}ns/{:>4.0}ns | {:>6}",
-            run,
-            m.btree_build_ms,
-            m.eytzinger_build_ms,
-            m.pgm_build_ms,
-            m.btree_hit_ns,
-            m.slice_hit_ns,
-            m.eytzinger_hit_ns,
-            m.pgm_hit_ns,
-            m.btree_miss_ns,
-            m.slice_miss_ns,
-            m.eytzinger_miss_ns,
-            m.pgm_miss_ns,
-            m.pgm_segments
+            "\n--- CIBLE : {:<15} ({} RUNS ISOLÉS) ---",
+            target.name(),
+            num_runs
         );
-        metrics.push(m);
+        println!(
+            "{:>5} | {:>14} | {:>14} | {:>14} | {:>14} | {:>14}",
+            "Run", "Build (ms)", "Hit (ns/op)", "Miss (ns/op)", "Lower Bound", "Mémoire"
+        );
+        println!("{}", "-".repeat(95));
+
+        let mut runs_data = Vec::with_capacity(num_runs);
+
+        for run in 1..=num_runs {
+            let seed = (run as u64) * 101 + 7;
+            let dataset = generate_dataset(dist, n_items, seed);
+
+            let mut rng = Rng::new(seed + 10_000);
+            let mut hit_queries = Vec::with_capacity(n_queries / 2);
+            for _ in 0..(n_queries / 2) {
+                let idx = (rng.next_u64() as usize) % dataset.len();
+                hit_queries.push(dataset[idx]);
+            }
+            let miss_queries = generate_internal_miss_queries(&dataset, n_queries / 2, &mut rng);
+
+            let m = run_isolated_target_benchmark(
+                target,
+                &dataset,
+                &hit_queries,
+                &miss_queries,
+                epsilon,
+            );
+
+            let mem_str = if m.memory_kb >= 1024.0 {
+                format!("{:.2} MB", m.memory_kb / 1024.0)
+            } else {
+                format!("{:.1} KB", m.memory_kb)
+            };
+
+            println!(
+                "#{:02}  | {:>11.2} ms | {:>11.1} ns | {:>11.1} ns | {:>11.1} ns | {:>14}",
+                run, m.build_ms, m.hit_ns, m.miss_ns, m.lower_bound_ns, mem_str
+            );
+
+            runs_data.push(m);
+        }
+
+        let builds: Vec<f64> = runs_data.iter().map(|m| m.build_ms).collect();
+        let hits: Vec<f64> = runs_data.iter().map(|m| m.hit_ns).collect();
+        let misses: Vec<f64> = runs_data.iter().map(|m| m.miss_ns).collect();
+        let lbs: Vec<f64> = runs_data.iter().map(|m| m.lower_bound_ns).collect();
+        let mems: Vec<f64> = runs_data.iter().map(|m| m.memory_kb).collect();
+        let segments_mean = if runs_data.iter().any(|m| m.segments > 0) {
+            runs_data.iter().map(|m| m.segments).sum::<usize>() / runs_data.len()
+        } else {
+            0
+        };
+
+        let mean_build = mean(&builds);
+        let mean_hit = mean(&hits);
+        let mean_miss = mean(&misses);
+        let mean_lb = mean(&lbs);
+        let mean_mem = mean(&mems);
+        let mean_total_lat = (mean_hit + mean_miss + mean_lb) / 3.0;
+
+        println!("{}", "-".repeat(95));
+        let mem_str = if mean_mem >= 1024.0 {
+            format!("{:.2} MB", mean_mem / 1024.0)
+        } else {
+            format!("{:.1} KB", mean_mem)
+        };
+        println!(
+            "MOY. | {:>11.2} ms | {:>11.1} ns | {:>11.1} ns | {:>11.1} ns | {:>14}",
+            mean_build, mean_hit, mean_miss, mean_lb, mem_str
+        );
+
+        summaries.push(TargetAggregateSummary {
+            target: Some(target),
+            label: target.name().to_string(),
+            mean_build_ms: mean_build,
+            mean_hit_ns: mean_hit,
+            mean_miss_ns: mean_miss,
+            mean_lb_ns: mean_lb,
+            mean_memory_kb: mean_mem,
+            mean_segments: segments_mean,
+            mean_total_latency_ns: mean_total_lat,
+        });
     }
 
-    println!("{}", "-".repeat(125));
+    // Print Scenario Comparative Table
+    print_comparative_table(&format!("TABLEAU COMPARATIF : {}", dist.name()), &summaries);
 
-    let btree_builds: Vec<f64> = metrics.iter().map(|m| m.btree_build_ms).collect();
-    let eyt_builds: Vec<f64> = metrics.iter().map(|m| m.eytzinger_build_ms).collect();
-    let pgm_builds: Vec<f64> = metrics.iter().map(|m| m.pgm_build_ms).collect();
-    let btree_hits: Vec<f64> = metrics.iter().map(|m| m.btree_hit_ns).collect();
-    let slice_hits: Vec<f64> = metrics.iter().map(|m| m.slice_hit_ns).collect();
-    let eyt_hits: Vec<f64> = metrics.iter().map(|m| m.eytzinger_hit_ns).collect();
-    let pgm_hits: Vec<f64> = metrics.iter().map(|m| m.pgm_hit_ns).collect();
-    let btree_misses: Vec<f64> = metrics.iter().map(|m| m.btree_miss_ns).collect();
-    let slice_misses: Vec<f64> = metrics.iter().map(|m| m.slice_miss_ns).collect();
-    let eyt_misses: Vec<f64> = metrics.iter().map(|m| m.eytzinger_miss_ns).collect();
-    let pgm_misses: Vec<f64> = metrics.iter().map(|m| m.pgm_miss_ns).collect();
-    let slice_lbs: Vec<f64> = metrics.iter().map(|m| m.slice_lb_ns).collect();
-    let eyt_lbs: Vec<f64> = metrics.iter().map(|m| m.eytzinger_lb_ns).collect();
-    let pgm_lbs: Vec<f64> = metrics.iter().map(|m| m.pgm_lb_ns).collect();
+    summaries
+}
 
-    let speedup_vs_btree = mean(&btree_hits) / mean(&pgm_hits);
-    let speedup_vs_slice = mean(&slice_hits) / mean(&pgm_hits);
-    let speedup_vs_eyt = mean(&eyt_hits) / mean(&pgm_hits);
-    let speedup_lb_slice = mean(&slice_lbs) / mean(&pgm_lbs);
-    let speedup_lb_eyt = mean(&eyt_lbs) / mean(&pgm_lbs);
+/// Renders the comparative matrix table with the bottom "Moyenne totale par cible" row.
+fn print_comparative_table(title: &str, summaries: &[TargetAggregateSummary]) {
+    if summaries.is_empty() {
+        return;
+    }
 
+    println!("\n{}", "=".repeat(110));
+    println!("   {}", title);
+    println!("{}", "=".repeat(110));
+
+    // 1. Column-oriented display (like README comparative table)
+    let col_w = 18;
+    print!("{:<30}", "| Métrique / Cible");
+    for s in summaries {
+        print!("| {:^width$} ", s.label, width = col_w);
+    }
+    println!("|");
+
+    print!("{:<30}", "|:----------------------------");
+    for _ in summaries {
+        print!("|:{:-<width$}:", "", width = col_w);
+    }
+    println!("|");
+
+    // Build Time
+    print!("{:<30}", "| Build Time (ms)");
+    for s in summaries {
+        print!("| {:>width$.2} ms ", s.mean_build_ms, width = col_w - 3);
+    }
+    println!("|");
+
+    // Hit Latency
+    print!("{:<30}", "| Hit Latency (ns/op)");
+    for s in summaries {
+        print!("| {:>width$.1} ns ", s.mean_hit_ns, width = col_w - 3);
+    }
+    println!("|");
+
+    // Miss Latency
+    print!("{:<30}", "| Miss Latency (ns/op)");
+    for s in summaries {
+        print!("| {:>width$.1} ns ", s.mean_miss_ns, width = col_w - 3);
+    }
+    println!("|");
+
+    // Lower Bound
+    print!("{:<30}", "| Lower Bound (ns/op)");
+    for s in summaries {
+        print!("| {:>width$.1} ns ", s.mean_lb_ns, width = col_w - 3);
+    }
+    println!("|");
+
+    // Memory
+    print!("{:<30}", "| Index Memory Overhead");
+    for s in summaries {
+        let mem_str = if s.mean_memory_kb >= 1024.0 {
+            format!("{:.2} MB", s.mean_memory_kb / 1024.0)
+        } else if s.mean_memory_kb == 0.0 {
+            "0.00 KB".to_string()
+        } else {
+            format!("{:.1} KB", s.mean_memory_kb)
+        };
+        print!("| {:>width$} ", mem_str, width = col_w);
+    }
+    println!("|");
+
+    // Segments (if any)
+    if summaries.iter().any(|s| s.mean_segments > 0) {
+        print!("{:<30}", "| Nombre de Segments");
+        for s in summaries {
+            let seg_str = if s.mean_segments > 0 {
+                format!("{} segs", s.mean_segments)
+            } else {
+                "N/A".to_string()
+            };
+            print!("| {:>width$} ", seg_str, width = col_w);
+        }
+        println!("|");
+    }
+
+    // Speedup vs first baseline (if multiple targets)
+    if summaries.len() > 1 {
+        let baseline_hit = summaries[0].mean_hit_ns;
+        print!("{:<30}", format!("| Speedup vs {}", summaries[0].label));
+        for s in summaries {
+            let sp = if s.mean_hit_ns > 0.0 {
+                baseline_hit / s.mean_hit_ns
+            } else {
+                1.0
+            };
+            print!("| {:>width$.2}x ", sp, width = col_w - 1);
+        }
+        println!("|");
+    }
+
+    // Divider
+    print!("{:<30}", "|=============================");
+    for _ in summaries {
+        print!("|={:=<width$}=", "", width = col_w);
+    }
+    println!("|");
+
+    // Case "Moyenne totale par cible" (Latence combinée)
+    print!("{:<30}", "| MOYENNE TOTALE PAR CIBLE   ");
+    for s in summaries {
+        print!(
+            "| {:>width$.1} ns ",
+            s.mean_total_latency_ns,
+            width = col_w - 3
+        );
+    }
+    println!("|");
+    println!("{}\n", "-".repeat(110));
+
+    // 2. Row-oriented Markdown table for report export
+    println!("Format Markdown récapitulatif :");
     println!(
-        "STATISTICAL SUMMARY (AVERAGE OVER {} RUNS, ISOLATED CACHE):",
-        num_runs
+        "| Cible / Target | Build Time | Hit Latency | Miss Latency | Lower Bound | Index Memory | Moyenne Totale Latence |"
     );
+    println!("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |");
+    for s in summaries {
+        let mem_str = if s.mean_memory_kb >= 1024.0 {
+            format!("{:.2} MB", s.mean_memory_kb / 1024.0)
+        } else if s.mean_memory_kb == 0.0 {
+            "0.00 KB".to_string()
+        } else {
+            format!("{:.1} KB", s.mean_memory_kb)
+        };
+        println!(
+            "| **{:<12}** | {:>8.2} ms | {:>9.1} ns | {:>10.1} ns | {:>9.1} ns | {:>12} | **{:>9.1} ns** |",
+            s.label,
+            s.mean_build_ms,
+            s.mean_hit_ns,
+            s.mean_miss_ns,
+            s.mean_lb_ns,
+            mem_str,
+            s.mean_total_latency_ns
+        );
+    }
+    // Bottom row: average across targets
+    let avg_build = mean(
+        &summaries
+            .iter()
+            .map(|s| s.mean_build_ms)
+            .collect::<Vec<_>>(),
+    );
+    let avg_hit = mean(&summaries.iter().map(|s| s.mean_hit_ns).collect::<Vec<_>>());
+    let avg_miss = mean(&summaries.iter().map(|s| s.mean_miss_ns).collect::<Vec<_>>());
+    let avg_lb = mean(&summaries.iter().map(|s| s.mean_lb_ns).collect::<Vec<_>>());
+    let avg_mem = mean(
+        &summaries
+            .iter()
+            .map(|s| s.mean_memory_kb)
+            .collect::<Vec<_>>(),
+    );
+    let avg_tot = mean(
+        &summaries
+            .iter()
+            .map(|s| s.mean_total_latency_ns)
+            .collect::<Vec<_>>(),
+    );
+    let avg_mem_str = if avg_mem >= 1024.0 {
+        format!("{:.2} MB", avg_mem / 1024.0)
+    } else {
+        format!("{:.1} KB", avg_mem)
+    };
     println!(
-        "├─ Build Time: BTree = {:.2} ms | Eytzinger = {:.2} ms | PGM = {:.2} ms (PGM {:.1}x vs BTree, {:.1}x vs Eyt)",
-        mean(&btree_builds),
-        mean(&eyt_builds),
-        mean(&pgm_builds),
-        mean(&btree_builds) / mean(&pgm_builds),
-        mean(&eyt_builds) / mean(&pgm_builds)
+        "| **MOYENNE GLOBALE** | {:>8.2} ms | {:>9.1} ns | {:>10.1} ns | {:>9.1} ns | {:>12} | **{:>9.1} ns** |",
+        avg_build, avg_hit, avg_miss, avg_lb, avg_mem_str, avg_tot
     );
+    println!();
+}
+
+fn print_help() {
+    println!("Learned Index Benchmark Runner");
+    println!("USAGE:");
+    println!("    cargo run --release -- [OPTIONS] [TARGETS...]\n");
+    println!("OPTIONS:");
+    println!("    -t, --target <T>        Target(s) to benchmark (comma-separated or multiple):");
+    println!("                            all, btree, slice, eytzinger, pgm [default: all]");
+    println!("    -r, --runs <N>          Number of distinct test runs per target [default: 10]");
+    println!("    -k, --keys <N>          Number of dataset keys [default: 1000000]");
+    println!("    -q, --queries <N>       Number of search queries per run [default: 100000]");
     println!(
-        "├─ Hit Latency: BTree = {:.1} ns | Slice = {:.1} ns | Eytzinger = {:.1} ns | PGM = {:.1} ns",
-        mean(&btree_hits),
-        mean(&slice_hits),
-        mean(&eyt_hits),
-        mean(&pgm_hits)
+        "    -s, --suite <S>         Distribution suite: all, dense, uniform, lognormal [default: all]"
     );
-    println!(
-        "│   • PGM Speedup: {:.2}x vs BTree | {:.2}x vs Flat Slice | {:.2}x vs Eytzinger",
-        speedup_vs_btree, speedup_vs_slice, speedup_vs_eyt
-    );
-    println!(
-        "│   • PGM Hit Range: Min = {:.1} ns | Max = {:.1} ns",
-        min_val(&pgm_hits),
-        max_val(&pgm_hits)
-    );
-    println!(
-        "├─ Miss Latency: BTree = {:.1} ns | Slice = {:.1} ns | Eytzinger = {:.1} ns | PGM = {:.1} ns",
-        mean(&btree_misses),
-        mean(&slice_misses),
-        mean(&eyt_misses),
-        mean(&pgm_misses)
-    );
-    println!(
-        "├─ Lower Bound Latency: Slice = {:.1} ns | Eytzinger = {:.1} ns | PGM = {:.1} ns (PGM {:.2}x vs Slice, {:.2}x vs Eyt)",
-        mean(&slice_lbs),
-        mean(&eyt_lbs),
-        mean(&pgm_lbs),
-        speedup_lb_slice,
-        speedup_lb_eyt
-    );
-    println!(
-        "├─ Memory Overhead: BTree ≈ 45.78 MB | Slice = 0 KB | Eytzinger ≈ {:.2} MB | PGM ≈ {:.1} KB",
-        mean(&metrics.iter().map(|m| m.eytzinger_kb).collect::<Vec<_>>()) / 1024.0,
-        mean(&metrics.iter().map(|m| m.pgm_index_kb).collect::<Vec<_>>())
-    );
-    println!(
-        "└─ Correctness: 100.0% match across all {} runs (0 discrepancies)",
-        num_runs
-    );
+    println!("    -h, --help              Print this help menu\n");
+    println!("EXAMPLES:");
+    println!("    cargo run --release");
+    println!("    cargo run --release -- --target eytzinger,pgm");
+    println!("    cargo run --release -- pgm --runs 10");
 }
 
 fn main() {
-    println!("{}", "=".repeat(125));
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    let mut selected_targets = Vec::new();
+    let mut num_runs = 10usize;
+    let mut n_items = 1_000_000usize;
+    let mut n_queries = 100_000usize;
+    let mut suite_filter = "all".to_string();
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        match arg.as_str() {
+            "-h" | "--help" => {
+                print_help();
+                return;
+            }
+            "-t" | "--target" | "--targets" => {
+                if i + 1 < args.len() {
+                    i += 1;
+                    for part in args[i].split(',') {
+                        if part.trim().eq_ignore_ascii_case("all") {
+                            selected_targets = BenchmarkTarget::ALL.to_vec();
+                        } else if let Some(t) = BenchmarkTarget::from_str_opt(part)
+                            .filter(|t| !selected_targets.contains(t))
+                        {
+                            selected_targets.push(t);
+                        }
+                    }
+                }
+            }
+            "-r" | "--runs" => {
+                if i + 1 < args.len() {
+                    i += 1;
+                    if let Ok(v) = args[i].parse::<usize>() {
+                        num_runs = v.max(1);
+                    }
+                }
+            }
+            "-k" | "--keys" | "--items" => {
+                if i + 1 < args.len() {
+                    i += 1;
+                    if let Ok(v) = args[i].parse::<usize>() {
+                        n_items = v.max(100);
+                    }
+                }
+            }
+            "-q" | "--queries" => {
+                if i + 1 < args.len() {
+                    i += 1;
+                    if let Ok(v) = args[i].parse::<usize>() {
+                        n_queries = v.max(10);
+                    }
+                }
+            }
+            "-s" | "--suite" => {
+                if i + 1 < args.len() {
+                    i += 1;
+                    suite_filter = args[i].to_ascii_lowercase();
+                }
+            }
+            other => {
+                if other.eq_ignore_ascii_case("all") {
+                    selected_targets = BenchmarkTarget::ALL.to_vec();
+                } else if let Some(t) =
+                    BenchmarkTarget::from_str_opt(other).filter(|t| !selected_targets.contains(t))
+                {
+                    selected_targets.push(t);
+                }
+            }
+        }
+        i += 1;
+    }
+
+    if selected_targets.is_empty() {
+        selected_targets = BenchmarkTarget::ALL.to_vec();
+    }
+
+    println!("{}", "=".repeat(110));
+    println!("   LEARNED INDEX BENCHMARK HARNESS : STATISTICAL MULTI-TARGET SUITE");
     println!(
-        "   10-RUN STATISTICAL BENCHMARK: BTREEMAP VS FLAT SLICE VS EYTZINGER VS PGM-INDEX (1,000,000 KEYS)"
+        "   Cibles actives : {:?} | Runs par cible : {} | Éléments : {} | Requêtes : {}",
+        selected_targets
+            .iter()
+            .map(|t| t.name())
+            .collect::<Vec<_>>(),
+        num_runs,
+        n_items,
+        n_queries
     );
-    println!("{}", "=".repeat(125));
+    println!("{}", "=".repeat(110));
 
-    const N_ITEMS: usize = 1_000_000;
-    const N_QUERIES: usize = 100_000;
-    const NUM_RUNS: usize = 10;
+    let mut suites = Vec::new();
+    match suite_filter.as_str() {
+        "dense" | "timestamp" => {
+            suites.push((
+                DistributionType::DenseTimestamp,
+                DistributionType::DenseTimestamp.default_epsilon(),
+            ));
+        }
+        "uniform" | "sparse" => {
+            suites.push((
+                DistributionType::UniformSparse,
+                DistributionType::UniformSparse.default_epsilon(),
+            ));
+        }
+        "lognormal" | "clustered" => {
+            suites.push((
+                DistributionType::ClusteredLognormal,
+                DistributionType::ClusteredLognormal.default_epsilon(),
+            ));
+        }
+        _ => {
+            suites.push((
+                DistributionType::DenseTimestamp,
+                DistributionType::DenseTimestamp.default_epsilon(),
+            ));
+            suites.push((
+                DistributionType::UniformSparse,
+                DistributionType::UniformSparse.default_epsilon(),
+            ));
+            suites.push((
+                DistributionType::ClusteredLognormal,
+                DistributionType::ClusteredLognormal.default_epsilon(),
+            ));
+        }
+    }
 
-    // Test 1: Dense Sequential / Time-Series (epsilon = 32)
-    execute_suite(
-        "Dense Sequential / Time-Series",
-        DistributionType::DenseTimestamp,
-        32,
-        N_ITEMS,
-        N_QUERIES,
-        NUM_RUNS,
-    );
+    let mut all_suite_summaries = Vec::new();
 
-    // Test 2: Uniform Sparse Random Distribution (epsilon = 16)
-    execute_suite(
-        "Uniform Sparse Random Distribution",
-        DistributionType::UniformSparse,
-        16,
-        N_ITEMS,
-        N_QUERIES,
-        NUM_RUNS,
-    );
+    for (dist, epsilon) in suites {
+        let summaries = execute_target_suite(
+            dist,
+            &selected_targets,
+            epsilon,
+            n_items,
+            n_queries,
+            num_runs,
+        );
+        all_suite_summaries.push((dist, summaries));
+    }
 
-    // Test 3: Heavy-Tailed Lognormal Distribution (epsilon = 16)
-    execute_suite(
-        "Heavy-Tailed Lognormal Distribution",
-        DistributionType::ClusteredLognormal,
-        16,
-        N_ITEMS,
-        N_QUERIES,
-        NUM_RUNS,
-    );
+    // Consolidated Final Grand Summary across all suites
+    if all_suite_summaries.len() > 1 {
+        println!("\n{}", "=".repeat(110));
+        println!(
+            "   SYNTHÈSE GLOBALE TOUS SCÉNARIOS CONFONDUS (MOYENNE TOTALE PAR CIBLE SUR {} TESTS)",
+            num_runs * all_suite_summaries.len()
+        );
+        println!("{}", "=".repeat(110));
+
+        let mut consolidated_summaries = Vec::new();
+
+        for &target in &selected_targets {
+            let mut target_builds = Vec::new();
+            let mut target_hits = Vec::new();
+            let mut target_misses = Vec::new();
+            let mut target_lbs = Vec::new();
+            let mut target_mems = Vec::new();
+            let mut target_segments = Vec::new();
+
+            for (_, suite_sums) in &all_suite_summaries {
+                if let Some(s) = suite_sums.iter().find(|s| s.target == Some(target)) {
+                    target_builds.push(s.mean_build_ms);
+                    target_hits.push(s.mean_hit_ns);
+                    target_misses.push(s.mean_miss_ns);
+                    target_lbs.push(s.mean_lb_ns);
+                    target_mems.push(s.mean_memory_kb);
+                    if s.mean_segments > 0 {
+                        target_segments.push(s.mean_segments);
+                    }
+                }
+            }
+
+            let mean_build = mean(&target_builds);
+            let mean_hit = mean(&target_hits);
+            let mean_miss = mean(&target_misses);
+            let mean_lb = mean(&target_lbs);
+            let mean_mem = mean(&target_mems);
+            let mean_seg = if target_segments.is_empty() {
+                0
+            } else {
+                target_segments.iter().sum::<usize>() / target_segments.len()
+            };
+            let mean_total_lat = (mean_hit + mean_miss + mean_lb) / 3.0;
+
+            consolidated_summaries.push(TargetAggregateSummary {
+                target: Some(target),
+                label: target.name().to_string(),
+                mean_build_ms: mean_build,
+                mean_hit_ns: mean_hit,
+                mean_miss_ns: mean_miss,
+                mean_lb_ns: mean_lb,
+                mean_memory_kb: mean_mem,
+                mean_segments: mean_seg,
+                mean_total_latency_ns: mean_total_lat,
+            });
+        }
+
+        print_comparative_table(
+            &format!(
+                "SYNTHÈSE MULTI-SCÉNARIOS (MOYENNE TOTALE PAR CIBLE SUR {} TESTS)",
+                num_runs * all_suite_summaries.len()
+            ),
+            &consolidated_summaries,
+        );
+    }
 }
