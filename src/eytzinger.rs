@@ -27,7 +27,7 @@ impl EytzingerSearch {
     ///
     /// # Example
     /// ```rust
-    /// use learned_index::EytzingerSearch;
+    /// use learned_index_lab::EytzingerSearch;
     ///
     /// let data = vec![10, 20, 30, 40, 50, 60, 70];
     /// let eyt = EytzingerSearch::build(&data);
