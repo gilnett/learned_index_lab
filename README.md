@@ -38,74 +38,8 @@ Measured on x86_64 hardware in `--release` mode. Consolidated average across all
 | **Flat Slice** | 0.00 ms | 282.7 ns | 272.9 ns | 275.3 ns | 0.00 KB | 277.0 ns | 1.20x |
 | **Eytzinger** | 6.30 ms | 163.7 ns | 160.9 ns | **169.2 ns** | 7.63 MB | **164.6 ns** | **2.02x** |
 | **PGM-Index** | 6.82 ms | **153.0 ns** | **154.1 ns** | 208.6 ns | **21.1 KB** | 171.9 ns | **1.93x** |
-| **MOYENNE GLOBALE** | **24.31 ms** | **228.4 ns** | **229.8 ns** | **250.8 ns** | **13.36 MB** | **236.3 ns** | — |
 
 > Detailed breakdown per distribution (Dense Time-Series, Uniform Sparse, and Heavy-Tailed Lognormal) is available in [docs/benchmarks/statistical_benchmarks.md](docs/benchmarks/statistical_benchmarks.md).
-
----
-
-## Roadmap & Architecture Evolution
-
-- **v0.1.0 – v0.2.0** *(Completed)*:
-  - Streaming PLA index builder ($O(N)$ single-pass construction).
-  - Exact point queries (`find`), predecessor search (`lower_bound`), and zero-copy slice scans (`range`).
-  - Baseline comparison against `BTreeMap` and `slice::binary_search`.
-  - Multi-platform CI matrix (Ubuntu, Windows, macOS).
-- **v0.3.0** *(Current Release)*:
-  - Cache-conscious Eytzinger array layout baseline (`EytzingerSearch`) with branchless search.
-  - Multi-target isolated benchmark harness with `--target` selector and 32MB CPU cache eviction barrier.
-  - Single-threaded isolated test execution (`--test-threads=1`).
-  - Per-target summary matrix with combined total average metrics.
-  - Documentation modularization into dedicated `docs/` topic guides.
-- **v0.4.0** *(Planned Milestone)*:
-  - SOSD (Search on Sorted Data) real-world dataset ingestion (OpenStreetMap, Books, Wikipedia).
-  - Skewed Zipfian query distribution generator.
-  - Multi-level recursive PGM indexing for massive datasets ($S > 10^5$).
-- **v0.5.0** *(Future Monorepo Architecture)*:
-  - Cargo Workspace structure within this repository:
-    - `crates/learned-index`: Pure, zero-dependency production storage engine core.
-    - `crates/index-benchmarks`: Exhaustive comparative testbed.
-  - Dynamic LSM extensions (buffered writes with asynchronous background segment compaction).
-
----
-
-## Quickstart & Code Example
-
-Add `learned_index_lab` to your `Cargo.toml`:
-
-```toml
-[dependencies]
-learned_index_lab = "0.3.0"
-```
-
-```rust
-use learned_index_lab::{EytzingerSearch, PgmIndex};
-
-fn main() {
-    // 1. Prepare sorted dataset
-    let data: Vec<u64> = vec![
-        100, 105, 110, 115, 120, 250, 500, 1000, 1500, 2000, 5000, 10000
-    ];
-
-    // 2. Build PGM index with error bound epsilon (e.g. 16 or 32)
-    let pgm = PgmIndex::build(data.clone(), 16);
-
-    // 3. Exact point lookup (O(log S + log epsilon))
-    assert_eq!(pgm.find(1500), Some(8));
-
-    // 4. Predecessor / Lower Bound search (first element >= target)
-    let lb_idx = pgm.lower_bound(1200);
-    println!("Lower bound for 1200 is index {} (value: {})", lb_idx, pgm.data[lb_idx]);
-
-    // 5. Zero-copy Range Query (slice scan)
-    let slice = pgm.range(110..=2000);
-    println!("Keys in range [110, 2000]: {:?}", slice);
-
-    // 6. Cache-conscious Eytzinger layout baseline
-    let eyt = EytzingerSearch::build(&data);
-    assert!(eyt.contains(1500));
-}
-```
 
 ---
 
