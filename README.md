@@ -1,4 +1,4 @@
-# Learned Index: Piecewise Geometric Model (PGM-Index) in Rust
+# Learned Index Lab: Modern Search Paradigms in Rust
 
 [![CI](https://github.com/gilnett/learned_index_lab/actions/workflows/ci.yml/badge.svg)](https://github.com/gilnett/learned_index_lab/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/learned_index_lab.svg)](https://crates.io/crates/learned_index_lab)
