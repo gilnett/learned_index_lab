@@ -78,6 +78,45 @@ fn generate_dataset(dist: DistributionType, count: usize, seed: u64) -> Vec<u64>
     data
 }
 
+fn generate_internal_miss_queries(dataset: &[u64], count: usize, rng: &mut Rng) -> Vec<u64> {
+    let mut queries = Vec::with_capacity(count);
+    if dataset.len() < 2 {
+        return queries;
+    }
+
+    let min_k = dataset[0];
+    let max_k = *dataset.last().unwrap();
+    let span = max_k.saturating_sub(min_k);
+
+    if span == 0 {
+        return queries;
+    }
+
+    // Sample within internal gaps between adjacent keys
+    let mut attempts = 0;
+    while queries.len() < count && attempts < count * 20 {
+        attempts += 1;
+        let idx = (rng.next_u64() as usize) % (dataset.len() - 1);
+        let left = dataset[idx];
+        let right = dataset[idx + 1];
+        if right > left + 1 {
+            let gap = right - left - 1;
+            let offset = 1 + (rng.next_u64() % gap);
+            queries.push(left + offset);
+        }
+    }
+
+    // Fallback: uniform sampling strictly within [min_k, max_k] that is absent from dataset
+    while queries.len() < count {
+        let candidate = min_k + (rng.next_u64() % (span + 1));
+        if dataset.binary_search(&candidate).is_err() {
+            queries.push(candidate);
+        }
+    }
+
+    queries
+}
+
 #[derive(Default, Clone, Copy)]
 struct RunMetric {
     btree_build_ms: f64,
@@ -88,6 +127,8 @@ struct RunMetric {
     btree_miss_ns: f64,
     slice_miss_ns: f64,
     pgm_miss_ns: f64,
+    slice_lb_ns: f64,
+    pgm_lb_ns: f64,
     pgm_segments: usize,
     pgm_index_kb: f64,
 }
@@ -120,11 +161,7 @@ fn run_single_iteration(
         hit_queries.push(dataset[idx]);
     }
 
-    let mut miss_queries = Vec::with_capacity(n_queries / 2);
-    for _ in 0..(n_queries / 2) {
-        let v = rng.next_u64() % (dataset.last().unwrap() + 1_000_000);
-        miss_queries.push(v);
-    }
+    let miss_queries = generate_internal_miss_queries(&dataset, n_queries / 2, &mut rng);
 
     // 1. BTreeMap
     let t0 = Instant::now();
@@ -132,72 +169,99 @@ fn run_single_iteration(
     for (idx, &k) in dataset.iter().enumerate() {
         btree.insert(k, idx);
     }
+    std::hint::black_box(&btree);
     let btree_build_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     let t0 = Instant::now();
     let mut btree_hits = 0;
     for &k in &hit_queries {
-        if let Some(&_val) = btree.get(&k) {
+        if btree.contains_key(&std::hint::black_box(k)) {
             btree_hits += 1;
         }
     }
+    std::hint::black_box(btree_hits);
     let btree_hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
 
     let t0 = Instant::now();
     let mut btree_misses = 0;
     for &k in &miss_queries {
-        if let Some(&_val) = btree.get(&k) {
+        if btree.contains_key(&std::hint::black_box(k)) {
             btree_misses += 1;
         }
     }
+    std::hint::black_box(btree_misses);
     let btree_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
 
     // 2. Flat Slice binary_search (Standard immutable baseline)
     let t0 = Instant::now();
     let mut slice_hits = 0;
     for &k in &hit_queries {
-        if dataset.binary_search(&k).is_ok() {
+        if dataset.binary_search(&std::hint::black_box(k)).is_ok() {
             slice_hits += 1;
         }
     }
+    std::hint::black_box(slice_hits);
     let slice_hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
 
     let t0 = Instant::now();
     let mut slice_misses = 0;
     for &k in &miss_queries {
-        if dataset.binary_search(&k).is_ok() {
+        if dataset.binary_search(&std::hint::black_box(k)).is_ok() {
             slice_misses += 1;
         }
     }
+    std::hint::black_box(slice_misses);
     let slice_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
 
     // 3. PGM-Index (Piecewise Geometric Model)
     let t0 = Instant::now();
-    let pgm = PgmIndex::build(dataset, epsilon);
+    let pgm = PgmIndex::build(dataset.clone(), epsilon);
+    std::hint::black_box(&pgm);
     let pgm_build_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     let t0 = Instant::now();
     let mut pgm_hits = 0;
     for &k in &hit_queries {
-        if pgm.find(k).is_some() {
+        if pgm.find(std::hint::black_box(k)).is_some() {
             pgm_hits += 1;
         }
     }
+    std::hint::black_box(pgm_hits);
     let pgm_hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
 
     let t0 = Instant::now();
     let mut pgm_misses = 0;
     for &k in &miss_queries {
-        if pgm.find(k).is_some() {
+        if pgm.find(std::hint::black_box(k)).is_some() {
             pgm_misses += 1;
         }
     }
+    std::hint::black_box(pgm_misses);
     let pgm_miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
+
+    // 4. Lower Bound / Predecessor Search
+    let t0 = Instant::now();
+    let mut slice_lb_sum = 0usize;
+    for &k in &hit_queries {
+        slice_lb_sum += dataset.partition_point(|&x| x < std::hint::black_box(k));
+    }
+    std::hint::black_box(slice_lb_sum);
+    let slice_lb_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+    let t0 = Instant::now();
+    let mut pgm_lb_sum = 0usize;
+    for &k in &hit_queries {
+        pgm_lb_sum += pgm.lower_bound(std::hint::black_box(k));
+    }
+    std::hint::black_box(pgm_lb_sum);
+    let pgm_lb_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
 
     assert_eq!(btree_hits, pgm_hits);
     assert_eq!(slice_hits, pgm_hits);
-    assert_eq!(btree_misses, pgm_misses);
-    assert_eq!(slice_misses, pgm_misses);
+    assert_eq!(btree_misses, 0);
+    assert_eq!(slice_misses, 0);
+    assert_eq!(pgm_misses, 0);
+    assert_eq!(slice_lb_sum, pgm_lb_sum);
 
     RunMetric {
         btree_build_ms,
@@ -208,6 +272,8 @@ fn run_single_iteration(
         btree_miss_ns,
         slice_miss_ns,
         pgm_miss_ns,
+        slice_lb_ns,
+        pgm_lb_ns,
         pgm_segments: pgm.segments.len(),
         pgm_index_kb: pgm.index_only_bytes() as f64 / 1024.0,
     }
@@ -266,9 +332,12 @@ fn execute_suite(
     let btree_misses: Vec<f64> = metrics.iter().map(|m| m.btree_miss_ns).collect();
     let slice_misses: Vec<f64> = metrics.iter().map(|m| m.slice_miss_ns).collect();
     let pgm_misses: Vec<f64> = metrics.iter().map(|m| m.pgm_miss_ns).collect();
+    let slice_lbs: Vec<f64> = metrics.iter().map(|m| m.slice_lb_ns).collect();
+    let pgm_lbs: Vec<f64> = metrics.iter().map(|m| m.pgm_lb_ns).collect();
 
     let speedup_vs_btree = mean(&btree_hits) / mean(&pgm_hits);
     let speedup_vs_slice = mean(&slice_hits) / mean(&pgm_hits);
+    let speedup_lb = mean(&slice_lbs) / mean(&pgm_lbs);
 
     println!("STATISTICAL SUMMARY (AVERAGE OVER {} RUNS):", num_runs);
     println!(
@@ -297,6 +366,12 @@ fn execute_suite(
         mean(&btree_misses),
         mean(&slice_misses),
         mean(&pgm_misses)
+    );
+    println!(
+        "├─ Lower Bound Latency: Slice partition_point = {:.1} ns | PGM = {:.1} ns (PGM {:.2}x faster)",
+        mean(&slice_lbs),
+        mean(&pgm_lbs),
+        speedup_lb
     );
     println!(
         "├─ Metadata Memory Footprint: BTree ≈ 45.78 MB | Slice = 0 KB | PGM ≈ {:.1} KB",

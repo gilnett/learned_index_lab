@@ -199,6 +199,12 @@ impl PgmIndex {
             }
         }
 
+        debug_assert!(
+            false,
+            "Invariant violation: bounded window [{}, {}] missed lower_bound target {} in PGM segment",
+            low, high, target
+        );
+
         self.data.partition_point(|&x| x < target)
     }
 
