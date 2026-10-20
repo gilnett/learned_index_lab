@@ -19,5 +19,7 @@ The **Eytzinger layout** (also known as breadth-first or level-order array layou
 ## Full Research Papers & Resources
 
 - **Foundational Paper**: Khuong, P.-V., & Morin, P. (2017). *"Array Layouts for Comparison-Based Searching"*, ACM Journal of Experimental Algorithmics (JEA), 22(1): 1–39.
-  - [arXiv:1509.05053 (Full PDF)](https://arxiv.org/abs/1509.05053)
+  - [Direct PDF Download (arXiv)](https://arxiv.org/pdf/1509.05053)
+  - [arXiv:1509.05053 (Abstract & Citation)](https://arxiv.org/abs/1509.05053)
+  - [ACM Digital Library](https://dl.acm.org/doi/10.1145/3053370)
 - **Algorithmica Tutorial**: [Eytzinger Binary Search Guide](https://en.algorithmica.org/hpc/data-structures/binary-search/)

@@ -1,8 +1,8 @@
 # Learned Index: Piecewise Geometric Model (PGM-Index) in Rust
 
-[![CI](https://github.com/gilnett/learned_index_lab/actions/workflows/ci.yml/badge.svg)](https://github.com/gilnett/learned_index_lab/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/learned_index_lab.svg)](https://crates.io/crates/learned_index_lab)
-[![Docs.rs](https://docs.rs/learned_index_lab/badge.svg)](https://docs.rs/learned_index_lab)
+[![CI](https://github.com/gilnett/learned-index/actions/workflows/ci.yml/badge.svg)](https://github.com/gilnett/learned-index/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/learned-index.svg)](https://crates.io/crates/learned-index)
+[![Docs.rs](https://docs.rs/learned-index/badge.svg)](https://docs.rs/learned-index)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-gilnet-F16061?style=flat&logo=ko-fi&logoColor=white)](https://ko-fi.com/gilnet)
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-gilnett-EA4AAA?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/gilnett)
@@ -115,8 +115,8 @@ The v0.3.0 test suite and benchmark harness support strict single-threaded isola
 
 ```bash
 # Clone the repository
-git clone https://github.com/gilnett/learned_index_lab.git
-cd learned_index_lab
+git clone https://github.com/gilnett/learned-index.git
+cd learned-index
 
 # Run the unit test suite with thread isolation
 cargo test --release -- --test-threads=1
@@ -151,10 +151,28 @@ cargo run --release -- --target pgm --suite uniform
 
 ## References
 
-- **[Why We've Been Indexing Data Wrong for 50 Years: Replacing B-Trees with Math in Rust](https://dev.to/gilnett/why-weve-been-indexing-data-wrong-for-50-years-replacing-b-trees-with-math-in-rust-nch)**: Architectural breakdown of CPU cache dynamics and learned indexing.
-- **Kraska et al. (2018)**: *"The Case for Learned Index Structures"*, ACM SIGMOD. [arXiv:1712.01208](https://arxiv.org/abs/1712.01208).
-- **Ferragina & Vinciguerra (2020)**: *"The PGM-index: a fully-dynamic compressed learned index with provable worst-case bounds"*, PVLDB. [arXiv:1910.06169](https://arxiv.org/abs/1910.06169).
-- **Khuong & Morin (2017)**: *"Array Layouts for Comparison-Based Searching"*, ACM JEA. [arXiv:1509.05053](https://arxiv.org/abs/1509.05053).
+### Technical Articles & Deep Dives
+- **[Why We've Been Indexing Data Wrong for 50 Years: Replacing B-Trees with Math in Rust](https://dev.to/gilnett/why-weve-been-indexing-data-wrong-for-50-years-replacing-b-trees-with-math-in-rust-nch)**: Architectural breakdown of CPU cache dynamics, the memory wall, mathematical CDF approximation, and real-world system implications of replacing pointer hierarchies with linear functions.
+- **[Learned Indexes in Rust v0.2: Answering Reddit, Adding Range Queries, and Beating B-Trees](https://dev.to/gilnett/learned-indexes-in-rust-v02-answering-reddit-adding-range-queries-and-beating-pd6)**: Community technical follow-up addressing memory overhead questions, implementing predecessor search (`lower_bound`), slice scans, and expanding benchmark baselines.
+
+### Seminal Research Papers
+- **Kraska et al. (2018)**: *"The Case for Learned Index Structures"* (ACM SIGMOD 2018) – [PDF (arXiv)](https://arxiv.org/pdf/1712.01208) · [arXiv:1712.01208](https://arxiv.org/abs/1712.01208). Seminal paper proving that sorted indexes can be modeled as cumulative distribution function (CDF) regressions.
+- **Ferragina & Vinciguerra (2020)**: *"The PGM-index: a fully-dynamic compressed learned index with provable worst-case bounds"* (PVLDB 2020) – [PDF (PVLDB)](https://www.vldb.org/pvldb/vol13/p1162-ferragina.pdf) · [PDF (arXiv)](https://arxiv.org/pdf/1910.06169) · [arXiv:1910.06169](https://arxiv.org/abs/1910.06169). Establishes optimal piecewise linear approximation (PLA) under bounded error corridors $\epsilon$.
+- **Khuong & Morin (2017)**: *"Array Layouts for Comparison-Based Searching"* (ACM JEA 2017) – [PDF (arXiv)](https://arxiv.org/pdf/1509.05053) · [arXiv:1509.05053](https://arxiv.org/abs/1509.05053). Formalizes the cache-conscious Eytzinger array layout and branchless level-order search.
+
+### Reference Codebases & Implementations
+- **[gvinciguerra/PGM-index](https://github.com/gvinciguerra/PGM-index)**: Official C++ reference implementation of the Piecewise Geometric Model index (University of Pisa, [pgm.di.unipi.it](https://pgm.di.unipi.it/)).
+- **[std::collections::BTreeMap](https://doc.rust-lang.org/std/collections/struct.BTreeMap.html)**: Rust Standard Library B-Tree implementation.
+- **[slice::binary_search](https://doc.rust-lang.org/std/primitive.slice.html#method.binary_search)**: Rust Standard Library core slice binary search.
+- **[Algorithmica: Eytzinger Binary Search](https://en.algorithmica.org/hpc/data-structures/binary-search/)**: Microarchitectural analysis of cache line alignment and branchless search.
+
+### Industry Storage Engines & Analytical Systems
+- **[facebook/rocksdb](https://github.com/facebook/rocksdb)**: High-performance embedded key-value database using LSM-Trees and [BlockBasedTable format](https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format).
+- **[duckdb/duckdb](https://github.com/duckdb/duckdb)**: High-performance embedded analytical columnar database.
+- **[ClickHouse/ClickHouse](https://github.com/ClickHouse/ClickHouse)**: High-performance columnar database management system for real-time analytics.
+- **[apache/parquet-format](https://github.com/apache/parquet-format)**: Open-source columnar storage format for deep nested and flat record data.
+- **[scylladb/scylladb](https://github.com/scylladb/scylladb)**: Low-latency NoSQL columnar database written in C++.
+- **[google/leveldb](https://github.com/google/leveldb)**: Foundational LSM-Tree storage engine written by Sanjay Ghemawat and Jeff Dean.
 
 ---
 

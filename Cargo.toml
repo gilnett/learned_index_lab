@@ -6,8 +6,8 @@ authors = ["Gilnett"]
 description = "High-performance Piecewise Geometric Model (PGM) learned index implementation in pure Rust with strict epsilon error guarantees."
 readme = "README.md"
 license = "Apache-2.0"
-repository = "https://github.com/gilnett/learned_index_lab"
-homepage = "https://github.com/gilnett/learned_index_lab"
+repository = "https://github.com/gilnett/learned-index"
+homepage = "https://github.com/gilnett/learned-index"
 keywords = ["learned-index", "pgm-index", "b-tree", "database", "data-structures"]
 categories = ["data-structures", "database-implementations", "algorithms"]
 

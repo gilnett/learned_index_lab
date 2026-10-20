@@ -16,6 +16,7 @@ The index builder executes in a single streaming pass ($O(N)$ time, $O(1)$ addit
 
 - **Foundational Paper**: Ferragina, P., & Vinciguerra, G. (2020). *"The PGM-index: a fully-dynamic compressed learned index with provable worst-case bounds"*, Proceedings of the VLDB Endowment (PVLDB), 13(8): 1162–1175.
   - [PVLDB Official Publication (PDF)](https://www.vldb.org/pvldb/vol13/p1162-ferragina.pdf)
-  - [arXiv:1910.06169 (Preprint)](https://arxiv.org/abs/1910.06169)
+  - [Direct arXiv PDF Download](https://arxiv.org/pdf/1910.06169)
+  - [arXiv:1910.06169 (Preprint Abstract)](https://arxiv.org/abs/1910.06169)
 - **Official PGM Project Site**: [https://pgm.di.unipi.it/](https://pgm.di.unipi.it/)
 - **C++ Reference Implementation**: [GitHub: gvinciguerra/PGM-index](https://github.com/gvinciguerra/PGM-index)
