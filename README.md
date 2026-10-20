@@ -75,7 +75,7 @@ Add `learned-index` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-learned-index = "0.2.0"
+learned-index = "0.3.0"
 ```
 
 ```rust
