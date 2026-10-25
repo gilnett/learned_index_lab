@@ -16,7 +16,9 @@
 //! ```
 
 pub mod eytzinger;
+pub mod multilevel;
 pub mod pgm;
 
 pub use eytzinger::EytzingerSearch;
+pub use multilevel::MultilevelPgmIndex;
 pub use pgm::{PgmIndex, Segment};
