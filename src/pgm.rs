@@ -2,11 +2,98 @@
 // Implementation of Piecewise Geometric Model Index (PGM-Index)
 // Optimal Piecewise Linear Approximation (PLA) in single streaming pass
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Segment {
     pub key: u64,
     pub slope: f64,
     pub intercept: f64,
+}
+
+/// Builds the optimal Piecewise Linear Approximation (PLA) segments in a single streaming pass.
+pub fn build_segments(data: &[u64], epsilon: usize) -> Vec<Segment> {
+    assert!(epsilon >= 1, "Epsilon must be >= 1");
+    if data.is_empty() {
+        return Vec::new();
+    }
+
+    debug_assert!(
+        data.windows(2).all(|w| w[0] <= w[1]),
+        "PGM-Index requires pre-sorted data in non-decreasing order"
+    );
+
+    let eps = epsilon as f64;
+    let mut segments = Vec::new();
+
+    let mut x0 = data[0];
+    let mut y0 = 0.0f64;
+
+    let compute_slope = |s_min: f64, s_max: f64| -> f64 {
+        if s_max.is_finite() {
+            (s_min + s_max) / 2.0
+        } else {
+            s_min
+        }
+    };
+
+    let mut s_min = 0.0f64;
+    let mut s_max = f64::INFINITY;
+
+    for (i, &xi) in data.iter().enumerate().skip(1) {
+        let yi = i as f64;
+        let dx = (xi - x0) as f64;
+
+        if dx == 0.0 {
+            // Duplicate key
+            if (yi - y0).abs() > eps {
+                // Force segment completion
+                let slope = compute_slope(s_min, s_max);
+                segments.push(Segment {
+                    key: x0,
+                    slope,
+                    intercept: y0,
+                });
+                x0 = xi;
+                y0 = yi;
+                s_min = 0.0;
+                s_max = f64::INFINITY;
+            }
+            continue;
+        }
+
+        let low_slope = ((yi - eps) - y0) / dx;
+        let high_slope = ((yi + eps) - y0) / dx;
+
+        let next_s_min = s_min.max(low_slope);
+        let next_s_max = s_max.min(high_slope);
+
+        if next_s_min <= next_s_max {
+            s_min = next_s_min;
+            s_max = next_s_max;
+        } else {
+            // Current point cannot be added to this segment within epsilon
+            let slope = compute_slope(s_min, s_max);
+            segments.push(Segment {
+                key: x0,
+                slope,
+                intercept: y0,
+            });
+
+            x0 = xi;
+            y0 = yi;
+            s_min = 0.0;
+            s_max = f64::INFINITY;
+        }
+    }
+
+    // Push the final active segment
+    let slope = compute_slope(s_min, s_max);
+    segments.push(Segment {
+        key: x0,
+        slope,
+        intercept: y0,
+    });
+
+    segments
 }
 
 #[derive(Debug, Clone)]
@@ -28,82 +115,7 @@ impl PgmIndex {
             };
         }
 
-        debug_assert!(
-            data.windows(2).all(|w| w[0] <= w[1]),
-            "PGM-Index requires pre-sorted data in non-decreasing order"
-        );
-
-        let eps = epsilon as f64;
-        let mut segments = Vec::new();
-
-        let mut x0 = data[0];
-        let mut y0 = 0.0f64;
-
-        let compute_slope = |s_min: f64, s_max: f64| -> f64 {
-            if s_max.is_finite() {
-                (s_min + s_max) / 2.0
-            } else {
-                s_min
-            }
-        };
-
-        let mut s_min = 0.0f64;
-        let mut s_max = f64::INFINITY;
-
-        for (i, &xi) in data.iter().enumerate().skip(1) {
-            let yi = i as f64;
-            let dx = (xi - x0) as f64;
-
-            if dx == 0.0 {
-                // Duplicate key
-                if (yi - y0).abs() > eps {
-                    // Force segment completion
-                    let slope = compute_slope(s_min, s_max);
-                    segments.push(Segment {
-                        key: x0,
-                        slope,
-                        intercept: y0,
-                    });
-                    x0 = xi;
-                    y0 = yi;
-                    s_min = 0.0;
-                    s_max = f64::INFINITY;
-                }
-                continue;
-            }
-
-            let low_slope = ((yi - eps) - y0) / dx;
-            let high_slope = ((yi + eps) - y0) / dx;
-
-            let next_s_min = s_min.max(low_slope);
-            let next_s_max = s_max.min(high_slope);
-
-            if next_s_min <= next_s_max {
-                s_min = next_s_min;
-                s_max = next_s_max;
-            } else {
-                // Current point cannot be added to this segment within epsilon
-                let slope = compute_slope(s_min, s_max);
-                segments.push(Segment {
-                    key: x0,
-                    slope,
-                    intercept: y0,
-                });
-
-                x0 = xi;
-                y0 = yi;
-                s_min = 0.0;
-                s_max = f64::INFINITY;
-            }
-        }
-
-        // Push the final active segment
-        let slope = compute_slope(s_min, s_max);
-        segments.push(Segment {
-            key: x0,
-            slope,
-            intercept: y0,
-        });
+        let segments = build_segments(&data, epsilon);
 
         Self {
             epsilon,
