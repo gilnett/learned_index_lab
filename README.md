@@ -4,7 +4,7 @@
 [![Crates.io](https://img.shields.io/crates/v/learned_index_lab.svg)](https://crates.io/crates/learned_index_lab)
 [![Docs.rs](https://docs.rs/learned_index_lab/badge.svg)](https://docs.rs/learned_index_lab)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-gilnet-F16061?style=flat&logo=ko-fi&logoColor=white)](https://ko-fi.com/gilnet)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-gilnett-FFDD00?style=flat&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/gilnett)
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-gilnett-EA4AAA?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/gilnett)
 
 A clean, zero-dependency Rust implementation and comparative benchmark suite of **Piecewise Geometric Model (PGM) Learned Index Structures**.
@@ -77,6 +77,8 @@ cargo run --release -- --target pgm --suite uniform
   - [Statistical Benchmarks (10-Run Matrix)](docs/benchmarks/statistical_benchmarks.md): Detailed results for Dense Time-Series, Uniform Sparse, and Heavy-Tailed Lognormal distributions.
 - **Architecture & Use Cases**:
   - [Production Architecture & Real-World Use Cases](docs/architecture/use_cases_and_production.md): OLAP columnar zone maps, LSM-Tree NVMe cache residency, and decision matrices.
+- **Roadmap & Future Work**:
+  - [Project Roadmap](ROADMAP.md): SOSD real-world datasets, batch rebuild benchmarks, and multilevel indexing.
 - **Historical Archives**:
   - [v0.2.0 Documentation Archive](docs/history/README_v0.2.0.md)
   - [v0.1.1 Documentation Archive](docs/history/README_v0.1.1.md)
