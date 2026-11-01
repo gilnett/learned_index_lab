@@ -12,6 +12,19 @@ use crate::pgm::{Segment, build_segments};
 /// segments at each lower level. This reduces the search overhead from $O(\log S + \log \epsilon)$ to
 /// $O(h \cdot \log \epsilon_{\text{rec}} + \log \epsilon_0)$, ensuring all searches remain strictly bounded
 /// and L1/L2 cache-resident.
+///
+/// # Example
+///
+/// ```rust
+/// use learned_index_lab::MultilevelPgmIndex;
+///
+/// let data = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+/// let ml_pgm = MultilevelPgmIndex::build(data, 2);
+///
+/// assert_eq!(ml_pgm.find(50), Some(4));
+/// assert_eq!(ml_pgm.find(99), None);
+/// assert_eq!(ml_pgm.lower_bound(45), 4);
+/// ```
 #[derive(Debug, Clone)]
 pub struct MultilevelPgmIndex {
     /// Epsilon error bound for the base level 0 indexing the raw data.
@@ -190,12 +203,52 @@ impl MultilevelPgmIndex {
             return &[];
         }
         let start = self.lower_bound(min_key);
-        let end = self.lower_bound(max_key.saturating_add(1));
+        let end = if max_key == u64::MAX {
+            self.data.len()
+        } else {
+            self.lower_bound(max_key + 1)
+        };
         if start < end && start < self.data.len() {
             &self.data[start..end.min(self.data.len())]
         } else {
             &[]
         }
+    }
+
+    /// Merges an already sorted batch of keys into this multi-level index,
+    /// reconstructing the hierarchy in O(N + M) time.
+    pub fn merge_sorted_batch(&self, batch: &[u64]) -> Self {
+        assert!(self.epsilon >= 1, "Base epsilon must be >= 1");
+        assert!(self.epsilon_recursive >= 1, "Recursive epsilon must be >= 1");
+        if batch.is_empty() {
+            return self.clone();
+        }
+        if self.data.is_empty() {
+            return Self::build_with_epsilons(batch.to_vec(), self.epsilon, self.epsilon_recursive);
+        }
+
+        let mut merged = Vec::with_capacity(self.data.len() + batch.len());
+        let mut i = 0;
+        let mut j = 0;
+
+        while i < self.data.len() && j < batch.len() {
+            if self.data[i] <= batch[j] {
+                merged.push(self.data[i]);
+                i += 1;
+            } else {
+                merged.push(batch[j]);
+                j += 1;
+            }
+        }
+
+        if i < self.data.len() {
+            merged.extend_from_slice(&self.data[i..]);
+        }
+        if j < batch.len() {
+            merged.extend_from_slice(&batch[j..]);
+        }
+
+        Self::build_with_epsilons(merged, self.epsilon, self.epsilon_recursive)
     }
 
     /// Internal top-down descent through the segment hierarchy to find the responsible segment index at level 0.
@@ -336,5 +389,31 @@ mod tests {
             index.range(10, 100),
             &[10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
         );
+    }
+
+    #[test]
+    fn test_multilevel_merge_sorted_batch() {
+        let base_data = vec![10, 30, 50, 70, 90];
+        let index = MultilevelPgmIndex::build(base_data, 2);
+
+        let batch = vec![20, 40, 60, 80, 100];
+        let merged = index.merge_sorted_batch(&batch);
+
+        assert_eq!(
+            merged.data,
+            vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        );
+        for target in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100] {
+            assert!(merged.find(target).is_some());
+        }
+        assert_eq!(merged.find(25), None);
+    }
+
+    #[test]
+    fn test_multilevel_range_with_u64_max() {
+        let data = vec![10, 20, u64::MAX];
+        let index = MultilevelPgmIndex::build(data, 2);
+        assert_eq!(index.range(10, u64::MAX), &[10, 20, u64::MAX]);
+        assert_eq!(index.range(u64::MAX, u64::MAX), &[u64::MAX]);
     }
 }
