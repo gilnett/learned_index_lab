@@ -9,8 +9,10 @@ This document details practical integration patterns, performance trade-offs, an
 | Workload Characteristic | Recommended Structure | Rationale |
 | :--- | :--- | :--- |
 | **Frequent in-place mutations / OLTP** | **`BTreeMap` / `B+Tree`** | Better suited for dynamic concurrent writes, page splits, and transaction management. |
-| **Immutable / Read-heavy sorted datasets** | **`PgmIndex`** | Ideal for SSTables in LSM engines, Parquet columnar row groups, and static lookup tables. |
-| **Memory-constrained environments** | **`PgmIndex`** | Reduces metadata footprint by up to 14,000x compared to pointer-based trees. |
+| **Immutable / Read-heavy sorted datasets (< 10M keys)** | **`PgmIndex`** | Ideal for SSTables in LSM engines, Parquet columnar row groups, and static lookup tables. |
+| **Massive datasets (> 10M keys) or irregular CDFs** | **`MultilevelPgmIndex`** | Recursive PGM tree guarantees O(h * log eps) lookup without binary searching large segment arrays. |
+| **Memory-constrained environments** | **`PgmIndex` / `MultilevelPgmIndex`** | Reduces metadata footprint by up to 14,000x compared to pointer-based trees. |
+| **Batch ingestion / SSTable compaction** | **`merge_sorted_batch`** | Merges sorted batches in O(N + M) and rebuilds streaming PLA segments at > 10M keys/sec. |
 | **Cache-friendly binary search** | **`EytzingerSearch`** | Replaces standard `slice::binary_search` with branchless level-order traversal when duplicate data buffer is tolerable. |
 | **Zero extra memory allowed** | **`slice::binary_search`** | In-situ search over pre-sorted data with 0 KB metadata overhead. |
 
