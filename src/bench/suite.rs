@@ -1,7 +1,9 @@
 // Copyright (c) Learned Index
 // Repetitive suite runner and metric aggregation
 
-use crate::bench::dataset::{DistributionType, Rng, generate_dataset, generate_internal_miss_queries};
+use crate::bench::dataset::{
+    DistributionType, Rng, generate_dataset, generate_internal_miss_queries,
+};
 use crate::bench::reporting::{mean, print_comparative_table};
 use crate::bench::target::{
     BenchmarkTarget, TargetAggregateSummary, TargetRunMetric, run_isolated_target_benchmark,
@@ -130,4 +132,3 @@ pub fn execute_target_suite(
 
     summaries
 }
-

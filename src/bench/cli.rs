@@ -20,15 +20,21 @@ pub fn print_help() {
     println!("    cargo run --release -- [OPTIONS] [TARGETS...]\n");
     println!("OPTIONS:");
     println!("    -t, --target <T>        Target(s) to benchmark (comma-separated or multiple):");
-    println!("                            all, btree, slice, eytzinger, pgm, multilevel [default: all]");
+    println!(
+        "                            all, btree, slice, eytzinger, pgm, multilevel [default: all]"
+    );
     println!("    -r, --runs <N>          Number of distinct test runs per target [default: 10]");
     println!("    -k, --keys <N>          Number of dataset keys [default: 1000000]");
     println!("    -q, --queries <N>       Number of search queries per run [default: 100000]");
     println!(
         "    -s, --suite <S>         Distribution suite: all, dense, uniform, lognormal, osm, wiki, books, sosd [default: all]"
     );
-    println!("    -b, --batch             Run batch ingestion & rebuild benchmark (SSTable vs BTree)");
-    println!("        --batch-size <N>    Batch size for batch ingestion benchmark [default: 50000]");
+    println!(
+        "    -b, --batch             Run batch ingestion & rebuild benchmark (SSTable vs BTree)"
+    );
+    println!(
+        "        --batch-size <N>    Batch size for batch ingestion benchmark [default: 50000]"
+    );
     println!("    -h, --help              Print this help menu\n");
     println!("EXAMPLES:");
     println!("    cargo run --release");
@@ -269,4 +275,3 @@ mod tests {
         assert_eq!(cfg.batch_size, 25_000);
     }
 }
-

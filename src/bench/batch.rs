@@ -92,4 +92,3 @@ pub fn run_batch_ingestion_benchmark(n_base: usize, batch_size: usize, epsilon: 
     );
     println!("{}", "=".repeat(110));
 }
-

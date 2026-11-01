@@ -219,7 +219,10 @@ impl MultilevelPgmIndex {
     /// reconstructing the hierarchy in O(N + M) time.
     pub fn merge_sorted_batch(&self, batch: &[u64]) -> Self {
         assert!(self.epsilon >= 1, "Base epsilon must be >= 1");
-        assert!(self.epsilon_recursive >= 1, "Recursive epsilon must be >= 1");
+        assert!(
+            self.epsilon_recursive >= 1,
+            "Recursive epsilon must be >= 1"
+        );
         if batch.is_empty() {
             return self.clone();
         }
@@ -399,10 +402,7 @@ mod tests {
         let batch = vec![20, 40, 60, 80, 100];
         let merged = index.merge_sorted_batch(&batch);
 
-        assert_eq!(
-            merged.data,
-            vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-        );
+        assert_eq!(merged.data, vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
         for target in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100] {
             assert!(merged.find(target).is_some());
         }

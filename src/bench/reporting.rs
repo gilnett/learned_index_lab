@@ -152,4 +152,3 @@ pub fn print_comparative_table(title: &str, summaries: &[TargetAggregateSummary]
     }
     println!();
 }
-

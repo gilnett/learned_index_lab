@@ -361,4 +361,3 @@ pub fn run_isolated_target_benchmark(
         }
     }
 }
-
