@@ -16,36 +16,37 @@ This repository evaluates mathematical function approximations of Empirical Cumu
 
 ---
 
-## Architectural Comparison (4 Search Paradigms)
+## Architectural Comparison
 
-| Dimension | Standard `BTreeMap` | Flat `slice::binary_search` | `EytzingerSearch` (Breadth-First) | `PGM-Index` (Learned Model) |
+| Structure | Layout | Lookup | Cache Locality | Index Memory (1M keys) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Data Layout** | Heap node hierarchy | Contiguous sorted slice | 1-based complete binary tree array | Compact array of $(a, b, k_0)$ segments |
-| **Lookup Mechanism** | 4–6 pointer hops across heap | $\sim 20$ binary jumps across RAM | Branchless arithmetic traversal (`k = 2k + bit`) | In-register ALU prediction + bounded local scan |
-| **Cache Locality** | Poor (scattered heap nodes) | Medium (strided binary jumps) | High (upper tree levels in L1/L2) | **Highest** (segments fit entirely in L1/L2) |
-| **Index Overhead** | $\sim 45.78\text{ MB}$ per $10^6$ keys | $0\text{ KB}$ (in-situ data only) | $7.63\text{ MB}$ per $10^6$ keys (duplicate layout) | **3.1 KB – 48.1 KB** (-99.9% vs BTree) |
-| **Primary Strength** | Dynamic in-place mutations | Zero extra memory | Branchless search, cache friendly | **Sub-microsecond lookups, extreme compression** |
+| **`BTreeMap`** | Heap nodes | Pointer hops ($O(\log N)$) | Poor | ~45.8 MB |
+| **`Flat Slice`** | Contiguous slice | Binary search ($O(\log N)$) | Medium | 0 KB |
+| **`Eytzinger`** | 1-based array | Branchless traversal | High | ~7.6 MB |
+| **`PgmIndex`** | Linear segments | ALU projection + local scan | Highest | 3 KB – 48 KB |
+| **`MultilevelPgmIndex`** | Recursive PGM tree | Top-down arithmetic ($O(h \log \epsilon)$) | Highest | 3.5 KB – 50 KB |
 
 ---
 
-## Benchmark Summary (v0.3.0 Consolidated Results)
+## Benchmark Summary (v0.4.0 Consolidated Results)
 
-Measured on x86_64 hardware in `--release` mode. Consolidated average across all 3 workload distributions (30 independent runs per target structure with a 32MB L1-L3 CPU cache eviction barrier between phases):
+Measured on x86_64 hardware in `--release` mode. Consolidated average across all 6 workload distributions (60 independent runs per target structure with a 32MB L1-L3 CPU cache eviction barrier between phases):
 
 | Cible / Target | Build Time | Hit Latency | Miss Latency | Lower Bound | Index Memory | Moyenne Totale Latence | Speedup vs BTree |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **BTreeMap** | 84.12 ms | 314.4 ns | 331.4 ns | 350.0 ns | 45.78 MB | 331.9 ns | 1.00x |
-| **Flat Slice** | 0.00 ms | 282.7 ns | 272.9 ns | 275.3 ns | 0.00 KB | 277.0 ns | 1.20x |
-| **Eytzinger** | 6.30 ms | 163.7 ns | 160.9 ns | **169.2 ns** | 7.63 MB | **164.6 ns** | **2.02x** |
-| **PGM-Index** | 6.82 ms | **153.0 ns** | **154.1 ns** | 208.6 ns | **21.1 KB** | 171.9 ns | **1.93x** |
+| **BTreeMap** | 53.63 ms | 182.9 ns | 186.3 ns | 187.4 ns | 45.78 MB | 185.6 ns | 1.00x |
+| **Flat Slice** | 0.00 ms | 136.0 ns | 115.5 ns | 117.0 ns | 0.00 KB | 122.8 ns | 1.35x |
+| **Eytzinger** | 5.30 ms | 112.6 ns | 107.1 ns | **121.6 ns** | 7.63 MB | 113.8 ns | 1.62x |
+| **PGM-Index** | **4.49 ms** | **102.7 ns** | **90.8 ns** | 135.3 ns | **330.6 KB** | **109.6 ns** | **1.78x** |
+| **Multilevel PGM** | 4.57 ms | 128.3 ns | 118.7 ns | 181.1 ns | **274.5 KB** | 142.7 ns | 1.43x |
 
-> Detailed breakdown per distribution (Dense Time-Series, Uniform Sparse, and Heavy-Tailed Lognormal) is available in [docs/benchmarks/statistical_benchmarks.md](docs/benchmarks/statistical_benchmarks.md).
+> Detailed breakdown per distribution (Synthetic and SOSD real-world benchmarks) is available in [docs/benchmarks/statistical_benchmarks.md](docs/benchmarks/statistical_benchmarks.md).
 
 ---
 
 ## Reproducibility & Verification
 
-The v0.3.0 test suite and benchmark harness support strict single-threaded isolation and modular target selection:
+The v0.4.0 test suite and benchmark harness support strict single-threaded isolation, SOSD real-world suites, and modular target selection:
 
 ```bash
 # Clone the repository
@@ -55,12 +56,15 @@ cd learned_index_lab
 # Run the unit test suite with thread isolation
 cargo test --release -- --test-threads=1
 
-# Execute the full 10-run release benchmark across all 4 targets
+# Execute the full 10-run release benchmark across all 5 targets
 cargo run --release
 
-# Run isolated benchmarks on specific targets
-cargo run --release -- --target eytzinger,pgm --runs 10
-cargo run --release -- --target pgm --suite uniform
+# Run isolated benchmarks on specific targets (including Multilevel PGM)
+cargo run --release -- --target multilevel,pgm --runs 10
+cargo run --release -- --target pgm,multilevel --suite sosd
+
+# Run the batch ingestion and rebuild benchmark (SSTable merge vs BTree in-place)
+cargo run --release -- --batch --batch-size 100000
 ```
 
 ---
@@ -70,16 +74,20 @@ cargo run --release -- --target pgm --suite uniform
 - **Theoretical Foundations**:
   - [CDF Approximation in Learned Indexes](docs/theory/cdf_learned_index.md): Mathematical regression formulation.
   - [Optimal Streaming PLA](docs/theory/streaming_pla.md): Single-pass bounded slope corridor algorithm.
+  - [Hierarchical Multilevel PGM](docs/theory/hierarchical_multilevel_pgm.md): Recursive segment indexing ($O(h \cdot \log \epsilon)$).
+  - [Batch Merge & Streaming Rebuild](docs/theory/batch_merge_rebuild.md): Two-way sorted merge and $O(N + M)$ streaming PLA rebuild.
   - [Eytzinger Layout](docs/theory/eytzinger_layout.md): Complete binary tree array with branchless traversal.
   - [Bounded Local Search](docs/theory/bounded_local_search.md): In-register ALU bounds and local verification.
   - [Theory Index & Full Papers](docs/theory/README.md): Overview with direct links to academic publications.
 - **Benchmarks & Performance**:
   - [Statistical Benchmarks (10-Run Matrix)](docs/benchmarks/statistical_benchmarks.md): Detailed results for Dense Time-Series, Uniform Sparse, and Heavy-Tailed Lognormal distributions.
 - **Architecture & Use Cases**:
+  - [Code Architecture & Memory Layout Guide](docs/architecture/code_architecture_and_memory_layout.md): Internal Rust implementation, cache line alignment, and ALU arithmetic prediction.
   - [Production Architecture & Real-World Use Cases](docs/architecture/use_cases_and_production.md): OLAP columnar zone maps, LSM-Tree NVMe cache residency, and decision matrices.
 - **Roadmap & Future Work**:
   - [Project Roadmap](ROADMAP.md): SOSD real-world datasets, batch rebuild benchmarks, and multilevel indexing.
 - **Historical Archives**:
+  - [v0.3.1 Documentation Archive](docs/history/README_v0.3.1.md)
   - [v0.2.0 Documentation Archive](docs/history/README_v0.2.0.md)
   - [v0.1.1 Documentation Archive](docs/history/README_v0.1.1.md)
 
