@@ -281,6 +281,41 @@ impl PgmIndex {
         (self.segments.capacity() * std::mem::size_of::<Segment>())
             + std::mem::size_of::<PgmIndex>()
     }
+
+    /// Merges an already sorted batch of keys into this index, producing a new index
+    /// with updated streaming PLA segments in a single linear pass O(N + M).
+    pub fn merge_sorted_batch(&self, batch: &[u64]) -> Self {
+        assert!(self.epsilon >= 1, "Epsilon must be >= 1");
+        if batch.is_empty() {
+            return self.clone();
+        }
+        if self.data.is_empty() {
+            return Self::build(batch.to_vec(), self.epsilon);
+        }
+
+        let mut merged = Vec::with_capacity(self.data.len() + batch.len());
+        let mut i = 0;
+        let mut j = 0;
+
+        while i < self.data.len() && j < batch.len() {
+            if self.data[i] <= batch[j] {
+                merged.push(self.data[i]);
+                i += 1;
+            } else {
+                merged.push(batch[j]);
+                j += 1;
+            }
+        }
+
+        if i < self.data.len() {
+            merged.extend_from_slice(&self.data[i..]);
+        }
+        if j < batch.len() {
+            merged.extend_from_slice(&batch[j..]);
+        }
+
+        Self::build(merged, self.epsilon)
+    }
 }
 
 #[cfg(test)]
@@ -472,5 +507,24 @@ mod tests {
                 "Mismatch for probe {probe}: expected index {expected}, got {actual}"
             );
         }
+    }
+
+    #[test]
+    fn test_merge_sorted_batch() {
+        let base_data = vec![10, 30, 50, 70, 90];
+        let pgm = PgmIndex::build(base_data, 2);
+
+        let batch = vec![20, 40, 60, 80, 100];
+        let merged = pgm.merge_sorted_batch(&batch);
+
+        assert_eq!(merged.data, vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
+        for target in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100] {
+            assert!(merged.find(target).is_some());
+        }
+        assert_eq!(merged.find(25), None);
+
+        // Empty batch
+        let empty_merge = pgm.merge_sorted_batch(&[]);
+        assert_eq!(empty_merge.data, vec![10, 30, 50, 70, 90]);
     }
 }
