@@ -18,28 +18,34 @@ This repository evaluates mathematical function approximations of Empirical Cumu
 
 ## Architectural Comparison
 
-| Structure | Layout | Lookup | Cache Locality | Index Memory (1M keys) |
-| :--- | :--- | :--- | :--- | :--- |
-| **`BTreeMap`** | Heap nodes | Pointer hops ($O(\log N)$) | Poor | ~45.8 MB |
-| **`Flat Slice`** | Contiguous slice | Binary search ($O(\log N)$) | Medium | 0 KB |
-| **`Eytzinger`** | 1-based array | Branchless traversal | High | ~7.6 MB |
-| **`PgmIndex`** | Linear segments | ALU projection + local scan | Highest | 3 KB – 48 KB |
-| **`MultilevelPgmIndex`** | Recursive PGM tree | Top-down arithmetic ($O(h \log \epsilon)$) | Highest | 3.5 KB – 50 KB |
+| Structure | Layout | Lookup | Cache Locality | Index Metadata (1M keys) | Total Process Memory |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`Flat Slice`** | Contiguous slice | Binary search ($O(\log N)$) | Medium (stride jumps across RAM) | **0.00 KB** | **7.63 MB** |
+| **`Eytzinger`** | 1-based array | Branchless traversal | **High (root levels L1-pinned)** | 7.63 MB | 15.26 MB |
+| **`PgmIndex`** | Linear segments | ALU projection + local scan | High (when segments <= L2 cache) | 3.1 KB - 1.50 MB | 7.63 MB - 9.13 MB |
+| **`MultilevelPgmIndex`** | Recursive PGM tree | Top-down arithmetic ($O(h \log \epsilon)$) | High (bounded descent) | 2.0 KB - 1.32 MB | 7.63 MB - 8.95 MB |
+| **`BTreeMap`** | Heap nodes | Pointer hops ($O(\log N)$) | Low (scattered heap nodes) | ~45.78 MB (embedded) | 45.78 MB |
 
 ---
 
 ## Benchmark Summary (v0.4.0 Consolidated Results)
 
-Measured on x86_64 hardware in `--release` mode. Consolidated average across all 6 workload distributions (60 independent runs per target structure with a 32MB L1-L3 CPU cache eviction barrier between phases):
+Measured on x86_64 hardware in `--release` mode. Consolidated average across all 6 workload distributions (30 independent runs per target structure with a 32MB L1-L3 CPU cache eviction barrier between phases):
 
-| Cible / Target | Build Time | Hit Latency | Miss Latency | Lower Bound | Index Memory | Moyenne Totale Latence | Speedup vs BTree |
+| Cible / Target | Build Time | Hit Latency | Miss Latency | Lower Bound | Index Metadata | Moyenne Totale Latence | Speedup vs BTree |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **BTreeMap** | 53.63 ms | 182.9 ns | 186.3 ns | 187.4 ns | 45.78 MB | 185.6 ns | 1.00x |
-| **Flat Slice** | 0.00 ms | 136.0 ns | 115.5 ns | 117.0 ns | 0.00 KB | 122.8 ns | 1.35x |
-| **Eytzinger** | 5.30 ms | 112.6 ns | 107.1 ns | **121.6 ns** | 7.63 MB | 113.8 ns | 1.62x |
-| **PGM-Index** | **4.49 ms** | **102.7 ns** | **90.8 ns** | 135.3 ns | **330.6 KB** | **109.6 ns** | **1.78x** |
-| **Multilevel PGM** | 4.57 ms | 128.3 ns | 118.7 ns | 181.1 ns | **274.5 KB** | 142.7 ns | 1.43x |
+| **BTreeMap** | 52.08 ms | 178.8 ns | 181.3 ns | 180.7 ns | 45.78 MB | 180.3 ns | 1.00x |
+| **Flat Slice** | **0.00 ms** | 140.9 ns | 113.4 ns | 122.4 ns | **0.00 KB** | 125.6 ns | 1.27x |
+| **Eytzinger** | 5.37 ms | 122.0 ns | 116.2 ns | **121.1 ns** | 7.63 MB | **119.7 ns** | 1.47x |
+| **PGM-Index** | 4.78 ms | **115.5 ns** | **107.2 ns** | 146.7 ns | 330.6 KB | 123.1 ns | **1.55x** |
+| **Multilevel PGM** | 4.61 ms | 149.7 ns | 141.7 ns | 206.1 ns | 274.5 KB | 165.8 ns | 1.19x |
 
+> [!NOTE]
+> **Trade-Off Summary Across Real-World & Synthetic Workloads**:
+> - **PGM-Index** is fastest on smooth/continuous distributions (up to **2.09x vs BTree**), reducing metadata by up to 14,700x (~5.7x total resident RAM).
+> - **BTreeMap** wins decisively on irregular, heavily fragmented, or extreme Pareto power-law distributions (e.g. SOSD Books: **2.87x faster than PGM**), where non-linearity degrades linear segment count.
+> - **Eytzinger** delivers the lowest and most consistent overall average latency (**119.7 ns**) without mathematical approximation error.
+>
 > Detailed breakdown per distribution (Synthetic and SOSD real-world benchmarks) is available in [docs/benchmarks/statistical_benchmarks.md](docs/benchmarks/statistical_benchmarks.md).
 
 ---

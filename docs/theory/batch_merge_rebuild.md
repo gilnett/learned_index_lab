@@ -2,28 +2,45 @@
 
 ## Overview
 
-Traditional search trees (`BTreeMap`, B+Trees) perform point-by-point dynamic in-place mutations ($O(\log N)$ per insert). Each insertion allocates nodes on the heap, rebalances branches, and invalidates CPU cache hierarchies.
+A fundamental trade-off exists between dynamic in-place mutation structures (like `std::collections::BTreeMap` or B+Trees) and immutable learned structures relying on batch rebuilds.
 
-In analytical engines and LSM-Tree architectures (e.g. SSTables in RocksDB, LevelDB, ScyllaDB), mutations are ingested in sorted batches. `learned_index_lab` leverages this through linear two-way batch merging followed by single-pass optimal streaming PLA approximation.
+* **Dynamic Trees (`BTreeMap`)**: Support granular, low-latency point insertions ($O(\log N)$ per key). Keys are inserted into multi-key nodes without rewriting the rest of the dataset.
+* **Learned Structures (`PgmIndex`)**: Are strictly immutable once built. Updates require a two-way merge of the existing sorted data with the new batch, followed by a full single-pass streaming PLA reconstruction ($O(N + M)$).
+
+This design mirrors the immutable SSTable compaction architecture used in LSM-tree storage engines (e.g. RocksDB, LevelDB, ScyllaDB), where writes are buffered in memory and flushed periodically in large sequential runs.
+
+---
 
 ## Algorithmic Mechanics
 
-1. **Two-Way Sorted Merge**:
-   Given existing sorted data of size $N$ and an incoming sorted batch of size $M$, two pointers merge the records into a single contiguous buffer in $O(N + M)$ time with zero branching mispredictions on sequentially ordered runs.
+1. **Two-Way Sorted Merge ($O(N + M)$)**:
+   Given existing sorted data of size $N$ and an incoming sorted batch of size $M$, two pointers merge both inputs into a single contiguous destination buffer. Sequential traversal allows the CPU prefetcher to operate at full memory bus bandwidth.
 
-2. **Single-Pass Streaming PLA**:
-   The merged buffer is streamed into the optimal convex hull slope corridor algorithm in a single sequential pass. Each point is evaluated once ($O(N + M)$), producing the minimal optimal set of segments satisfying tolerance $\pm \epsilon$.
+2. **Single-Pass Streaming PLA ($O(N + M)$)**:
+   The merged buffer is streamed into the optimal convex hull slope corridor algorithm. Each element is evaluated once, producing the minimal optimal set of segments satisfying error tolerance $\pm \epsilon$.
 
-## Complexity Comparison
+---
 
-| Dimension | Dynamic In-Place B-Tree | Batch Merge + Streaming PLA |
+## Engineering Trade-Offs: When Batch Merge Wins vs. When B-Tree Wins
+
+| Workload Dimension | Dynamic In-Place B-Tree (`BTreeMap`) | Batch Merge + Streaming PLA (`PgmIndex`) |
 | :--- | :--- | :--- |
-| **Ingestion Complexity** | $O(M \log(N + M))$ pointer hops | $O(N + M)$ contiguous stream |
-| **Heap Allocations** | 1 heap allocation per node split | 1 single contiguous buffer allocation |
-| **Cache Locality** | Random heap traversal | Strictly linear hardware prefetch |
-| **Post-Merge Model Size** | $\sim 45\text{ MB}$ per $10^6$ keys | $\sim 20\text{ KB}$ per $10^6$ keys (-99.9%) |
+| **Point Updates ($M = 1$ key)** | **$O(\log N)$ ($\approx 20\text{–}25$ ops)** | $O(N)$ full buffer rewrite (massive write amplification) |
+| **Small Batches ($M \ll N$)** | **$O(M \log N)$ (localized node edits)** | $O(N + M)$ (rewrites all $N$ elements) |
+| **Large Compactions ($M \approx N$)** | $O(M \log(N + M))$ pointer hops | **$O(N + M)$ strictly contiguous stream** |
+| **Transient Memory During Write** | **Zero extra buffer (node-by-node allocation)** | **$2 \times (N + M)$ double-buffering during merge** |
+| **Post-Merge Total Memory (1M keys)** | ~45.78 MB (nodes + data embedded) | **~7.65 MB – 9.13 MB** (7.63 MB data + index metadata) |
+| **Concurrent Read Interference** | Requires locks / latching or tree cow | **Lock-free immutable snapshot reads** |
 
-## Architectural Context
+---
 
-This approach mirrors SSTable compaction in storage engines: immutable runs ensure that reads never contend with concurrent lock acquisitions or pointer rotations.
+## Key Architectural Takeaways
 
+1. **Write Amplification on Small Batches**:
+   If an application requires frequent single-key insertions or random updates, **`BTreeMap` is overwhelmingly superior**. Rebuilding a PGM index for small $M$ wastes millions of CPU cycles re-approximating unchanged regions.
+
+2. **Transient Double-Buffering Overhead**:
+   Merging a dataset of size $N$ with a batch $M$ requires allocating a contiguous buffer of size $(N + M) \times 8\text{ bytes}$. During the merge, both the old buffer and the new buffer reside simultaneously in memory. In memory-constrained environments, this transient peak can cause out-of-memory errors unless disk spillover is implemented.
+
+3. **Sweet Spot**:
+   Batch merge and streaming rebuild is optimal specifically for **write-rare, read-heavy analytical workloads (OLAP)** or **LSM-tree compaction stages** where updates naturally occur in massive, pre-sorted blocks.
