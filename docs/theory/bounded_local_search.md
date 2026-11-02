@@ -2,21 +2,36 @@
 
 ## Summary Extract
 
-In a Piecewise Geometric Model (PGM-Index), lookup combines global mathematical interpolation with strictly bounded local binary search:
+In a Piecewise Geometric Model (PGM-Index), lookup combines global mathematical interpolation with strictly bounded local search in a 3-step pipeline:
 
-1. **Global Segment Search ($O(\log S)$)**:
-   Given a target key $k$, find the responsible segment by binary search over segment origin keys $k_0$. Because $S \ll N$, segment headers fit entirely within L1/L2 cache.
+1. **Global Segment Resolution**:
+   Given a target key $k$, the algorithm locates the responsible segment whose starting key satisfies $s.\text{key} \le k$. In single-level PGM, this is performed via binary search over the $S$ segment headers ($O(\log S)$). In multilevel PGM, it is resolved via recursive arithmetic descent ($O(h \cdot \log \epsilon_{\text{rec}})$).
+
 2. **ALU Arithmetic Prediction**:
-   The position estimate is calculated via in-register ALU arithmetic:
-   $$\text{Pos}_{\text{approx}} = \text{round}(y_0 + s \cdot (k - x_0))$$
-3. **Bounded Local Verification**:
-   The exact key position is guaranteed to reside in the bounded window:
-   $$[\max(0, \text{Pos}_{\text{approx}} - \epsilon), \min(N - 1, \text{Pos}_{\text{approx}} + \epsilon)]$$
-   A local binary search over this window ($\le 2\epsilon + 1$ elements) takes $O(\log \epsilon)$ time and hits at most 1–4 contiguous cache lines.
+   Once the responsible segment $s = (k_0, \text{slope}, \text{intercept})$ is identified, the predicted ordinal offset is computed via scalar registers:
+   $$\text{Pos}_{\text{approx}} = \text{round}(\text{intercept} + \text{slope} \times (k - k_0))$$
 
-### Guarantees
-- **Lookup Complexity**: $O(\log S + \log \epsilon)$
-- **Exactness**: 100% exact (zero false positives, zero false negatives).
+3. **Bounded Local Verification**:
+   The optimal streaming PLA construction guarantees that if $k$ exists in the dataset, its true index resides strictly within:
+   $$[\max(0, \text{Pos}_{\text{approx}} - \epsilon), \min(N - 1, \text{Pos}_{\text{approx}} + \epsilon)]$$
+   A local search over this bounded window ($\le 2\epsilon + 1$ elements) takes $O(\log \epsilon)$ time and accesses at most 1–4 contiguous 64-byte cache lines.
+
+---
+
+## Microarchitectural Analysis of the Local Window
+
+* **Cache Footprint**: For $\epsilon = 16$, the maximum search span is $2\epsilon + 1 = 33$ elements ($33 \times 8 = 264\text{ bytes}$). Because this slice is contiguous, fetching the first element causes the hardware prefetcher to pull the remaining 3 cache lines directly into L1 cache.
+* **Local Search Strategies**:
+  * **Binary Search (`slice::binary_search`)**: Minimizes comparison count ($\approx \lceil \log_2(33) \rceil = 6$ comparisons), but each step incurs a conditional branch that may trigger CPU branch mispredictions.
+  * **Linear / SIMD Scan**: For very small $\epsilon$ ($\le 16$), unrolled linear comparisons or vector SIMD instructions (e.g. AVX2 / ARM NEON) can evaluate multiple keys simultaneously without branch misprediction stalls, representing an optimization path for high-throughput engines.
+
+---
+
+## Guarantees & Trade-offs
+
+* **Complexity**: $O(\log S + \log \epsilon)$ for single-level PGM; $O(h \log \epsilon_{\text{rec}} + \log \epsilon_0)$ for multilevel PGM.
+* **Exactness**: 100% exact (zero false positives, zero false negatives).
+* **Sensitivity to Segment Count**: If $S$ is small (smooth CDF), Step 1 takes negligible time. If $S$ is large (severe skew or step functions), Step 1 dominates the entire query latency, eliminating the speedup over classical search trees.
 
 ---
 
