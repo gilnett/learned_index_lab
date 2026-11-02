@@ -1,7 +1,7 @@
 ## Description
 Brief summary of the proposed changes.
 
-## Motivation & Context
+## Global Context
 Why is this change required? What issue does it solve?
 
 ## Type of Change
