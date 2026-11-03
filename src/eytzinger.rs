@@ -61,6 +61,48 @@ impl EytzingerSearch {
         Self { tree }
     }
 
+    /// Builds an in-situ Eytzinger search layout by consuming a pre-sorted vector.
+    ///
+    /// Reorganizes the keys into level order without retaining an external duplicate buffer.
+    /// In this mode, auxiliary index metadata overhead is strictly **0 KB** because the tree
+    /// array acts as the primary data storage.
+    ///
+    /// # Example
+    /// ```rust
+    /// use learned_index_lab::EytzingerSearch;
+    ///
+    /// let data = vec![10, 20, 30, 40, 50, 60, 70];
+    /// let eyt = EytzingerSearch::from_sorted_vec(data);
+    /// assert!(eyt.contains(40));
+    /// assert_eq!(eyt.in_situ_metadata_bytes(), 0);
+    /// ```
+    pub fn from_sorted_vec(sorted: Vec<u64>) -> Self {
+        debug_assert!(
+            sorted.windows(2).all(|w| w[0] <= w[1]),
+            "EytzingerSearch requires pre-sorted data"
+        );
+
+        let n = sorted.len();
+        if n == 0 {
+            return Self { tree: Vec::new() };
+        }
+
+        let mut tree = vec![0u64; n + 1];
+        let mut in_order_idx = 0;
+
+        fn inorder(k: usize, n: usize, in_order_idx: &mut usize, sorted: &[u64], tree: &mut [u64]) {
+            if k <= n {
+                inorder(2 * k, n, in_order_idx, sorted, tree);
+                tree[k] = sorted[*in_order_idx];
+                *in_order_idx += 1;
+                inorder(2 * k + 1, n, in_order_idx, sorted, tree);
+            }
+        }
+
+        inorder(1, n, &mut in_order_idx, &sorted, &mut tree);
+        Self { tree }
+    }
+
     /// Checks if the target key is present in the layout using branchless search.
     #[inline]
     pub fn contains(&self, target: u64) -> bool {
@@ -132,6 +174,24 @@ impl EytzingerSearch {
     pub fn memory_bytes(&self) -> usize {
         self.tree.capacity() * std::mem::size_of::<u64>()
     }
+
+    /// Returns the auxiliary index metadata overhead in bytes when used as an in-situ layout (0 bytes).
+    #[inline]
+    pub fn in_situ_metadata_bytes(&self) -> usize {
+        0
+    }
+
+    /// Returns the internal tree as a contiguous slice.
+    #[inline]
+    pub fn as_tree_slice(&self) -> &[u64] {
+        &self.tree
+    }
+
+    /// Consumes the search layout and returns the internal vector.
+    #[inline]
+    pub fn into_inner(self) -> Vec<u64> {
+        self.tree
+    }
 }
 
 #[cfg(test)]
@@ -200,6 +260,13 @@ mod tests {
         let data = vec![1, 2, 3, 4, 5, 6, 7];
         let eyt = EytzingerSearch::build(&data);
         assert!(eyt.memory_bytes() >= (data.len() + 1) * std::mem::size_of::<u64>());
+        assert_eq!(eyt.in_situ_metadata_bytes(), 0);
+
+        let data_owned = vec![1, 2, 3, 4, 5, 6, 7];
+        let eyt_insitu = EytzingerSearch::from_sorted_vec(data_owned);
+        assert_eq!(eyt_insitu.len(), 7);
+        assert_eq!(eyt_insitu.as_tree_slice(), eyt.as_tree_slice());
+        assert_eq!(eyt_insitu.into_inner().len(), 8);
     }
 
     #[test]

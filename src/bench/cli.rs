@@ -21,7 +21,7 @@ pub fn print_help() {
     println!("OPTIONS:");
     println!("    -t, --target <T>        Target(s) to benchmark (comma-separated or multiple):");
     println!(
-        "                            all, btree, slice, eytzinger, pgm, multilevel [default: all]"
+        "                            all, btree, slice, eytzinger, eytzinger-index, pgm, multilevel [default: all]"
     );
     println!("    -r, --runs <N>          Number of distinct test runs per target [default: 10]");
     println!("    -k, --keys <N>          Number of dataset keys [default: 1000000]");
@@ -240,7 +240,7 @@ mod tests {
         assert_eq!(cfg.num_runs, 10);
         assert_eq!(cfg.n_items, 1_000_000);
         assert_eq!(cfg.n_queries, 100_000);
-        assert_eq!(cfg.selected_targets.len(), 5);
+        assert_eq!(cfg.selected_targets.len(), 6);
         assert_eq!(cfg.suites.len(), 6);
         assert!(!cfg.run_batch);
     }
@@ -259,6 +259,20 @@ mod tests {
         assert_eq!(cfg.selected_targets.len(), 2);
         assert!(cfg.selected_targets.contains(&BenchmarkTarget::Multilevel));
         assert!(cfg.selected_targets.contains(&BenchmarkTarget::Pgm));
+
+        let args_eyt = vec!["-t".to_string(), "eytzinger,eyt-index".to_string()];
+        let cfg_eyt = parse_cli_args(&args_eyt).expect("Eytzinger targets should parse");
+        assert_eq!(cfg_eyt.selected_targets.len(), 2);
+        assert!(
+            cfg_eyt
+                .selected_targets
+                .contains(&BenchmarkTarget::Eytzinger)
+        );
+        assert!(
+            cfg_eyt
+                .selected_targets
+                .contains(&BenchmarkTarget::EytzingerIndex)
+        );
         assert_eq!(cfg.suites.len(), 3); // 3 SOSD suites
         assert_eq!(cfg.num_runs, 5);
     }

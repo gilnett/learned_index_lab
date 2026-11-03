@@ -21,7 +21,7 @@ This repository evaluates mathematical function approximations of Empirical Cumu
 | Structure | Layout | Lookup | Cache Locality | Index Metadata (1M keys) | Total Process Memory |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`Flat Slice`** | Contiguous slice | Binary search ($O(\log N)$) | Medium (stride jumps across RAM) | **0.00 KB** | **7.63 MB** |
-| **`Eytzinger`** | 1-based array | Branchless traversal | **High (root levels L1-pinned)** | 7.63 MB | 15.26 MB |
+| **`Eytzinger`** | 1-based array | Branchless traversal | **High (root levels L1-pinned)** | **0.00 KB** (in-situ) / 7.63 MB | **7.63 MB** (in-situ) / 15.26 MB |
 | **`PgmIndex`** | Linear segments | ALU projection + local scan | High (when segments <= L2 cache) | 3.1 KB - 1.50 MB | 7.63 MB - 9.13 MB |
 | **`MultilevelPgmIndex`** | Recursive PGM tree | Top-down arithmetic ($O(h \log \epsilon)$) | High (bounded descent) | 2.0 KB - 1.32 MB | 7.63 MB - 8.95 MB |
 | **`BTreeMap`** | Heap nodes | Pointer hops ($O(\log N)$) | Low (scattered heap nodes) | ~45.78 MB (embedded) | 45.78 MB |

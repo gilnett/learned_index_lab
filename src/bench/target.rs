@@ -10,15 +10,17 @@ pub enum BenchmarkTarget {
     BTree,
     Slice,
     Eytzinger,
+    EytzingerIndex,
     Pgm,
     Multilevel,
 }
 
 impl BenchmarkTarget {
-    pub const ALL: [BenchmarkTarget; 5] = [
+    pub const ALL: [BenchmarkTarget; 6] = [
         BenchmarkTarget::BTree,
         BenchmarkTarget::Slice,
         BenchmarkTarget::Eytzinger,
+        BenchmarkTarget::EytzingerIndex,
         BenchmarkTarget::Pgm,
         BenchmarkTarget::Multilevel,
     ];
@@ -27,7 +29,8 @@ impl BenchmarkTarget {
         match self {
             Self::BTree => "BTreeMap",
             Self::Slice => "Flat Slice",
-            Self::Eytzinger => "Eytzinger",
+            Self::Eytzinger => "Eytzinger (In-Situ)",
+            Self::EytzingerIndex => "Eytzinger (Index)",
             Self::Pgm => "PGM-Index",
             Self::Multilevel => "Multilevel PGM",
         }
@@ -37,7 +40,8 @@ impl BenchmarkTarget {
         match s.trim().to_ascii_lowercase().as_str() {
             "btree" | "btreemap" | "b-tree" => Some(Self::BTree),
             "slice" | "flat" | "flatslice" | "binary_search" => Some(Self::Slice),
-            "eyt" | "eytzinger" => Some(Self::Eytzinger),
+            "eyt" | "eytzinger" | "eyt-insitu" | "eytzinger-insitu" => Some(Self::Eytzinger),
+            "eyt-index" | "eytzinger-index" => Some(Self::EytzingerIndex),
             "pgm" | "pgmindex" | "pgm-index" | "learned" => Some(Self::Pgm),
             "multilevel" | "multi" | "ml-pgm" | "multilevel-pgm" => Some(Self::Multilevel),
             _ => None,
@@ -196,6 +200,58 @@ pub fn run_isolated_target_benchmark(
         BenchmarkTarget::Eytzinger => {
             clear_cpu_cache();
             let t0 = Instant::now();
+            let eyt = EytzingerSearch::from_sorted_vec(dataset.to_vec());
+            std::hint::black_box(&eyt);
+            let build_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut hits = 0;
+            for &k in hit_queries {
+                if eyt.contains(std::hint::black_box(k)) {
+                    hits += 1;
+                }
+            }
+            std::hint::black_box(hits);
+            let hit_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut misses = 0;
+            for &k in miss_queries {
+                if eyt.contains(std::hint::black_box(k)) {
+                    misses += 1;
+                }
+            }
+            std::hint::black_box(misses);
+            let miss_ns = t0.elapsed().as_nanos() as f64 / miss_queries.len() as f64;
+
+            clear_cpu_cache();
+            let t0 = Instant::now();
+            let mut lb_sum = 0u64;
+            for &k in hit_queries {
+                if let Some(val) = eyt.lower_bound(std::hint::black_box(k)) {
+                    lb_sum += val;
+                }
+            }
+            std::hint::black_box(lb_sum);
+            let lower_bound_ns = t0.elapsed().as_nanos() as f64 / hit_queries.len() as f64;
+
+            assert_eq!(hits, hit_queries.len());
+            assert_eq!(misses, 0);
+
+            TargetRunMetric {
+                build_ms,
+                hit_ns,
+                miss_ns,
+                lower_bound_ns,
+                memory_kb: 0.0, // In-situ primary layout: 0 KB metadata overhead!
+                segments: 0,
+            }
+        }
+        BenchmarkTarget::EytzingerIndex => {
+            clear_cpu_cache();
+            let t0 = Instant::now();
             let eyt = EytzingerSearch::build(dataset);
             std::hint::black_box(&eyt);
             let build_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -243,7 +299,7 @@ pub fn run_isolated_target_benchmark(
                 hit_ns,
                 miss_ns,
                 lower_bound_ns,
-                memory_kb,
+                memory_kb, // Dual-buffer secondary index: full auxiliary tree array
                 segments: 0,
             }
         }
