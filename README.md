@@ -86,6 +86,7 @@ cargo run --release -- --batch --batch-size 100000
   - [Batch Merge & Streaming Rebuild](docs/theory/batch_merge_rebuild.md): Two-way sorted merge and $O(N + M)$ streaming PLA rebuild.
   - [Eytzinger Layout](docs/theory/eytzinger_layout.md): Complete binary tree array with branchless traversal.
   - [Bounded Local Search](docs/theory/bounded_local_search.md): In-register ALU bounds and local verification.
+  - [Learned Index Landscape & SOTA Comparison](docs/theory/learned_index_landscape.md): Comparative analysis of PGM, RMI, ALEX, RadixSpline, FITing-Tree, and B+Tree.
   - [Theory Index & Full Papers](docs/theory/README.md): Overview with direct links to academic publications.
 - **Benchmarks & Performance**:
   - [Statistical Benchmarks (10-Run Matrix)](docs/benchmarks/statistical_benchmarks.md): Detailed results for Dense Time-Series, Uniform Sparse, and Heavy-Tailed Lognormal distributions.
