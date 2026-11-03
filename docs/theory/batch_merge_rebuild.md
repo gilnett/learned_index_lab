@@ -25,9 +25,9 @@ This design mirrors the immutable SSTable compaction architecture used in LSM-tr
 
 | Workload Dimension | Dynamic In-Place B-Tree (`BTreeMap`) | Batch Merge + Streaming PLA (`PgmIndex`) |
 | :--- | :--- | :--- |
-| **Point Updates ($M = 1$ key)** | **$O(\log N)$ ($\approx 20\text{–}25$ ops)** | $O(N)$ full buffer rewrite (massive write amplification) |
+| **Point Updates ($M = 1$ key)** | **$O(\log N)$ ($\approx 20\text{–}25$ ops)** | $OO(N) full buffer rewrite (massive write amplification) |
 | **Small Batches ($M \ll N$)** | **$O(M \log N)$ (localized node edits)** | $O(N + M)$ (rewrites all $N$ elements) |
-| **Large Compactions ($M \approx N$)** | $O(M \log(N + M))$ pointer hops | **$O(N + M)$ strictly contiguous stream** |
+| **Large Compactions ($M \approx N$)** | $OO(M log(N + M)) pointer hops | **$O(N + M)$ strictly contiguous stream** |
 | **Transient Memory During Write** | **Zero extra buffer (node-by-node allocation)** | **$2 \times (N + M)$ double-buffering during merge** |
 | **Post-Merge Total Memory (1M keys)** | ~45.78 MB (nodes + data embedded) | **~7.65 MB – 9.13 MB** (7.63 MB data + index metadata) |
 | **Concurrent Read Interference** | Requires locks / latching or tree cow | **Lock-free immutable snapshot reads** |

@@ -80,6 +80,7 @@ cargo run --release -- --batch --batch-size 100000
 - **Theoretical Foundations**:
   - [CDF Approximation in Learned Indexes](docs/theory/cdf_learned_index.md): Mathematical regression formulation.
   - [Optimal Streaming PLA](docs/theory/streaming_pla.md): Single-pass bounded slope corridor algorithm.
+  - [Duplicate Keys & Plateaus](docs/theory/duplicate_keys_handling.md): Error corridor absorption and segment splitting mechanics.
   - [Epsilon Tuning & Cache Hierarchy](docs/theory/epsilon_tuning_and_cache.md): Microarchitectural 64-byte cache line alignment and Pareto sizing.
   - [Hierarchical Multilevel PGM](docs/theory/hierarchical_multilevel_pgm.md): Recursive segment indexing ($O(h \cdot \log \epsilon)$).
   - [Batch Merge & Streaming Rebuild](docs/theory/batch_merge_rebuild.md): Two-way sorted merge and $O(N + M)$ streaming PLA rebuild.

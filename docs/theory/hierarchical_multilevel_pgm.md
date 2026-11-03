@@ -6,17 +6,17 @@ In a single-level `PgmIndex`, locating the responsible segment for a query key r
 
 The Hierarchical Multilevel PGM-Index (Ferragina & Vinciguerra, PVLDB 2020) eliminates flat binary search across segments by recursively constructing PGM index layers over the start keys of lower levels:
 
-1. **Level 0 (Base Layer)**: Directly indexes the $N$ raw sorted data keys using base error tolerance $\epsilon_0$, producing $S_0$ linear segments.
-2. **Recursive Upper Levels**: For level $i \ge 1$, an upper PGM index is constructed over the $S_{i-1}$ segment start keys of level $i-1$ using recursive tolerance $\epsilon_{\text{rec}}$.
-3. **Root Level**: Construction terminates when the top level contains $\le 2 \cdot \epsilon_{\text{rec}}$ segments, which fit in a single CPU cache line.
+1. **Level 0 (Base Layer)**: Directly indexes the $N$ raw sorted data keys using base error tolerance ε₀, producing $S_0$ linear segments.
+2. **Recursive Upper Levels**: For level $i \ge 1$, an upper PGM index is constructed over the $S_{i-1}$ segment start keys of level $i-1$ using recursive tolerance ε_rec.
+3. **Root Level**: Construction terminates when the top level contains $\le 2 \cdot \varepsilon_{\text{rec}}$ segments, which fit in a single CPU cache line.
 
 ---
 
 ## Complexity & Deterministic Guarantees
 
-* **Tree Height**: $h \approx \lceil \log_{2\epsilon_{\text{rec}}} S_0 \rceil$.
-* **Query Time**: $O(h \cdot \log \epsilon_{\text{rec}} + \log \epsilon_0)$, replacing global binary search over segments with top-down arithmetic projections.
-* **Deterministic Bounds**: Every descent step stays within $[\text{pos} - \epsilon_{\text{rec}}, \text{pos} + \epsilon_{\text{rec}}]$, ensuring intermediate lookups remain tightly bounded.
+* **Tree Height**: $h \approx \lceil \log_{2\varepsilon_{\text{rec}}} S_0 \rceil$.
+* **Query Time**: $O(h \cdot \log \varepsilon_{\text{rec}} + \log \varepsilon_0)$, replacing global binary search over segments with top-down arithmetic projections.
+* **Deterministic Bounds**: Every descent step stays within `[pos - ε_rec, pos + ε_rec]`, ensuring intermediate lookups remain tightly bounded.
 
 ---
 
@@ -26,9 +26,9 @@ Empirical benchmarks highlight critical trade-offs between single-level and mult
 
 | Dataset Scale | Single-Level `PgmIndex` | `MultilevelPgmIndex` | Architectural Recommendation |
 | :--- | :--- | :--- | :--- |
-| **Small / Moderate ($N \le 10^6$)** | **Faster ($\approx 123\text{ ns}$ avg)** | Slower ($\approx 165\text{ ns}$ avg) | **Single-Level**: $S_0$ fits in L2/L3 cache ($< 330\text{ KB}$). Flat binary search is faster than multi-hop arithmetic descent. |
-| **Massive ($N > 10^7$)** | Slower (segment cache thrashing) | **Faster (predictable cache residency)** | **Multilevel**: $S_0$ overflows L3 cache ($> 10\text{ MB}$); hierarchical descent prevents large stride memory jumps. |
-| **Severe Pareto Skew (SOSD Books)** | Slower ($100\text{ ns}$) | Slower ($153\text{ ns}$) | **`BTreeMap` ($35\text{ ns}$)**: Tree node caching outperforms learned arithmetic when segments explode. |
+| **Small / Moderate (N ≤ 10⁶)** | **Faster (~123 ns avg)** | Slower (~165 ns avg) | **Single-Level**: S₀ fits in L2/L3 cache (< 330 KB). Flat binary search is faster than multi-hop arithmetic descent. |
+| **Massive (N > 10⁷)** | Slower (segment cache thrashing) | **Faster (predictable cache residency)** | **Multilevel**: S₀ overflows L3 cache (> 10 MB); hierarchical descent prevents large stride memory jumps. |
+| **Severe Pareto Skew (SOSD Books)** | Slower (100 ns) | Slower (153 ns) | **`BTreeMap` (35 ns)**: Tree node caching outperforms learned arithmetic when segments explode. |
 
 ---
 

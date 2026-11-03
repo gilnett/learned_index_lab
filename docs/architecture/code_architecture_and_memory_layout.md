@@ -123,7 +123,7 @@ Raw Data Vector           : Contiguous Vec<u64>
 
 | Design Dimension | Streaming Linear PLA (This Lab) | High-Order Polynomials / Splines | Deep Neural Networks (MLP / RBF) |
 | :--- | :--- | :--- | :--- |
-| **Error Guarantees** | **Deterministic $\pm \epsilon$ worst-case** | Hard to bound strictly | No worst-case bounds |
+| **Error Guarantees** | **Deterministic ± ε worst-case** | Hard to bound strictly | No worst-case bounds |
 | **Build Complexity** | **$O(N)$ single streaming pass** | $O(N)$ to $O(N^2)$ matrix solve | $O(\text{epochs} \cdot N)$ gradient descent |
 | **ALU Execution** | **1 FMA instruction ($\sim 4$ cycles)** | Multiple multiplies + division | Matrix GEMM / activation vector calls |
 | **Hardware Fit** | Standard scalar registers | SIMD / AVX-512 register pressure | GPU / NPU accelerator required |
