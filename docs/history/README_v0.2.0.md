@@ -59,7 +59,7 @@ Distribution: Dense Timestamp | Tolerance: epsilon = 32
 | :--- | :--- | :--- | :--- | :--- |
 | **Mean Build Time** | 67.94 ms | 0.00 ms (pre-sorted) | 3.65 ms | **18.6x faster than BTree** |
 | **Index-Only Memory** | 45.78 MB | 0 KB | 3.1 KB | **14,700x compression** |
-| **Mean Hit Latency** | 221.8 ns/op | 152.7 ns/op | **63.5 ns/op** | **3.50x vs BTree \| 2.41x vs Slice** |
+| **Mean Hit Latency** | 221.8 ns/op | 152.7 ns/op | **63.5 ns/op** | **3.50x vs BTree / 2.41x vs Slice** |
 | **Mean Miss Latency** | 10.0 ns/op | 23.7 ns/op | **0.7 ns/op** | **14.3x faster negative rejection** |
 | **Segments Count** | N/A | N/A | 83 segments | **12,048x factor** |
 | **Verification** | 100.0% match | 100.0% match | 100.0% match | **0 discrepancies across 10 runs** |
@@ -76,8 +76,8 @@ Distribution: Uniform Sparse Random | Tolerance: epsilon = 16
 | :--- | :--- | :--- | :--- | :--- |
 | **Mean Build Time** | 68.79 ms | 0.00 ms (pre-sorted) | 3.82 ms | **18.0x faster than BTree** |
 | **Index-Only Memory** | 45.78 MB | 0 KB | 48.1 KB | **-99.89% memory reduction** |
-| **Mean Hit Latency** | 223.0 ns/op | 150.9 ns/op | **70.5 ns/op** | **3.16x vs BTree \| 2.14x vs Slice** |
-| **Mean Miss Latency** | 214.6 ns/op | 104.0 ns/op | **68.1 ns/op** | **3.15x vs BTree \| 1.53x vs Slice** |
+| **Mean Hit Latency** | 223.0 ns/op | 150.9 ns/op | **70.5 ns/op** | **3.16x vs BTree / 2.14x vs Slice** |
+| **Mean Miss Latency** | 214.6 ns/op | 104.0 ns/op | **68.1 ns/op** | **3.15x vs BTree / 1.53x vs Slice** |
 | **Segments Count** | N/A | N/A | 1,406 segments | **711x compression** |
 | **Verification** | 100.0% match | 100.0% match | 100.0% match | **0 discrepancies across 10 runs** |
 
@@ -93,7 +93,7 @@ Distribution: Lognormal Clustered | Tolerance: epsilon = 16
 | :--- | :--- | :--- | :--- | :--- |
 | **Mean Build Time** | 69.75 ms | 0.00 ms (pre-sorted) | 3.90 ms | **17.9x faster than BTree** |
 | **Index-Only Memory** | 45.78 MB | 0 KB | 12.1 KB | **-99.97% memory reduction** |
-| **Mean Hit Latency** | 216.4 ns/op | 141.0 ns/op | **48.6 ns/op** | **4.45x vs BTree \| 2.90x vs Slice** |
-| **Mean Miss Latency** | 61.4 ns/op | 39.8 ns/op | **38.2 ns/op** | **1.61x vs BTree \| 1.04x vs Slice** |
+| **Mean Hit Latency** | 216.4 ns/op | 141.0 ns/op | **48.6 ns/op** | **4.45x vs BTree / 2.90x vs Slice** |
+| **Mean Miss Latency** | 61.4 ns/op | 39.8 ns/op | **38.2 ns/op** | **1.61x vs BTree / 1.04x vs Slice** |
 | **Segments Count** | N/A | N/A | 455 segments | **2,197x compression** |
 | **Verification** | 100.0% match | 100.0% match | 100.0% match | **0 discrepancies across 10 runs** |
