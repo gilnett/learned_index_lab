@@ -11,7 +11,12 @@ use crate::pgm::{Segment, build_segments};
 /// `MultilevelPgmIndex` recursively constructs higher-level indexing layers over the starting keys of the
 /// segments at each lower level. This reduces the search overhead from $O(\log S + \log \epsilon)$ to
 /// $O(h \cdot \log \epsilon_{\text{rec}} + \log \epsilon_0)$, ensuring all searches remain strictly bounded
-/// and L1/L2 cache-resident.
+/// and cache-resident.
+///
+/// ### Scale Considerations
+/// For moderate datasets ($N \le 10^6$), the flat segment table in `PgmIndex` typically fits in L2/L3 cache,
+/// making single-level `PgmIndex` faster in query latency. `MultilevelPgmIndex` is intended for massive
+/// datasets ($N > 10^7$) where flat segment arrays exceed CPU cache capacities.
 ///
 /// # Example
 ///
