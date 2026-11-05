@@ -90,7 +90,14 @@ cargo run --release -- --batch --batch-size 100000
   - [Theory Index & Full Papers](docs/theory/README.md): Overview with direct links to academic publications.
 - **Benchmarks & Performance**:
   - [Statistical Benchmarks (10-Run Matrix)](docs/benchmarks/statistical_benchmarks.md): Detailed results for Dense Time-Series, Uniform Sparse, and Heavy-Tailed Lognormal distributions.
-- **Architecture & Use Cases**:
+- **Integration Cookbook & Practical Recipes**:
+  - [Integration Cookbook Overview](docs/cookbook/README.md): Architecture invariants and complete recipe directory.
+  - [Point & Range Queries](docs/cookbook/point_and_range_queries.md): Exact lookups (`find`), predecessor search (`lower_bound`), and zero-copy contiguous range scans (`range`).
+  - [Concurrent Read Scaling](docs/cookbook/concurrent_reads.md): Lock-free multi-threaded query execution using `Arc<PgmIndex>`.
+  - [LSM SSTable Double-Buffering](docs/cookbook/lsm_sstable_double_buffering.md): Background compaction and atomic pointer swapping in LSM engines.
+  - [Columnar Block Zone Maps](docs/cookbook/columnar_block_zone_maps.md): Sparse block indexing for Parquet / ClickHouse block pruning.
+  - [Operational Tuning & Monitoring](docs/cookbook/operational_tuning_and_monitoring.md): Cache line sizing, $N/S$ compression metrics, and production checklist.
+- **Architecture & Internal Design**:
   - [Code Architecture & Memory Layout Guide](docs/architecture/code_architecture_and_memory_layout.md): Internal Rust implementation, cache line alignment, and ALU arithmetic prediction.
   - [Production Architecture & Real-World Use Cases](docs/architecture/use_cases_and_production.md): OLAP columnar zone maps, LSM-Tree NVMe cache residency, and decision matrices.
 - **Roadmap & Future Work**:
