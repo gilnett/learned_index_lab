@@ -25,13 +25,11 @@ pub struct Segment {
   * Two contiguous `Segment` structs occupy **48 bytes** ($2 \times 24\text{ B}$), leaving 16 bytes for the start of a third segment.
   * Over sequential traversals, fetching a single 64-byte cache line brings **2.66 segments** directly into L1 cache without pointer chasing.
 
-```
-64-Byte CPU Cache Line:
-+------------------------+------------------------+----------------+
-| Segment 0 (24 bytes)   | Segment 1 (24 bytes)   | Segment 2 Part |
-| key | slope | intercept| key | slope | intercept| key (8 bytes)  |
-+------------------------+------------------------+----------------+
-```
+| Cache Line Slice | Struct Payload | Field Breakdown | Byte Range |
+| :--- | :--- | :--- | :--- |
+| **Segment 0** | 24 bytes | `key` (8B) + `slope` (8B) + `intercept` (8B) | Bytes 0–23 |
+| **Segment 1** | 24 bytes | `key` (8B) + `slope` (8B) + `intercept` (8B) | Bytes 24–47 |
+| **Segment 2 (Partial)** | 16 bytes | `key` (8B) + `slope` (8B) | Bytes 48–63 |
 
 ### Contiguous Data Buffer Locality
 
@@ -41,12 +39,24 @@ In contrast, `PgmIndex` and `MultilevelPgmIndex` decouple the index from the dat
 1. `segments: Vec<Segment>`: Compact array containing only linear segment parameters.
 2. `data: Vec<u64>`: Continuous sorted raw data buffer.
 
-```
-PgmIndex Memory Model:
-[ PgmIndex Struct ] (32 bytes)
-  |-- epsilon: usize
-  |-- segments: Vec<Segment> ---> [ Seg 0 | Seg 1 | Seg 2 | ... | Seg S-1 ] (Compact Array)
-  +-- data: Vec<u64>         ---> [ K0 | K1 | K2 | K3 | ... | Kn-1 ]        (Contiguous RAM)
+```mermaid
+flowchart LR
+    subgraph Host["PgmIndex Host Struct (32 Bytes)"]
+        Eps["epsilon: usize"]
+        SegPtr["segments: Vec~Segment~"]
+        DataPtr["data: Vec~u64~"]
+    end
+
+    subgraph IndexArray["Index Array (Heap Allocated)"]
+        Segs["[ Seg 0 | Seg 1 | Seg 2 | ... | Seg S-1 ]"]
+    end
+
+    subgraph DataArray["Primary Data Array (Contiguous RAM)"]
+        Keys["[ K0 | K1 | K2 | K3 | ... | Kn-1 ]"]
+    end
+
+    SegPtr --> IndexArray
+    DataPtr --> DataArray
 ```
 
 ---
@@ -55,26 +65,14 @@ PgmIndex Memory Model:
 
 Looking up a key $k$ in `PgmIndex` follows a two-stage process:
 
-```text
-Target Key k
-     |
-     v
-[1. Global Segment Selection: binary_search(s.key <= k)]
-     |
-     v
-Segment s (key, slope, intercept)
-     |
-     v
-[2. In-Register ALU Prediction: approx = round(intercept + slope * (k - key))]
-     |
-     v
-Corridor Window: [approx - eps, approx + eps]
-     |
-     v
-[3. Local Verification: data[low..=high].binary_search(k)]
-     |
-     v
-Exact Index in data (or None)
+```mermaid
+flowchart TD
+    Key["Target Key: k"] --> Step1["1. Global Segment Selection: binary_search_by_key"]
+    Step1 --> Seg["Matched Segment: s (key, slope, intercept)"]
+    Seg --> Step2["2. In-Register ALU Prediction: approx = round(intercept + slope * (k - key))"]
+    Step2 --> Window["Corridor Search Window: [approx - ε, approx + ε]"]
+    Window --> Step3["3. Local Slice Verification: data[low..=high].binary_search(k)"]
+    Step3 --> Result["Exact Index in data (or None)"]
 ```
 
 ### Step 1: Global Segment Resolution ($O(\log S)$)
@@ -101,17 +99,27 @@ Exact Index in data (or None)
 
 When $N > 10^7$ or under large-scale workloads where segment arrays exceed L3 cache capacities, `MultilevelPgmIndex` recursively constructs upper PGM layers over segment start keys:
 
-```text
-Level h-1 (Root PGM)      : <= 2 * eps_rec segments
-        | (Top-Down Arithmetic Descent)
-        v
-Level 1 (Intermediate PGM): Indexes Level 0 keys
-        | (Arithmetic Projection)
-        v
-Level 0 (Base PGM)        : Indexes raw data keys
-        | (Local Search Window [pos - eps, pos + eps])
-        v
-Raw Data Vector           : Contiguous Vec<u64>
+```mermaid
+flowchart TD
+    subgraph Root["Level h-1 (Root PGM Layer)"]
+        R["Top-Level Segments (<= 2 * ε_rec)"]
+    end
+
+    subgraph Inter["Level 1 (Intermediate PGM Layer)"]
+        I["Indexes Level 0 Segment Anchors"]
+    end
+
+    subgraph Base["Level 0 (Base PGM Layer)"]
+        B["Indexes Raw Data Keys with ε0"]
+    end
+
+    subgraph Data["Primary Storage Buffer"]
+        D["Contiguous Sorted Vec~u64~"]
+    end
+
+    R -->|"Top-Down Arithmetic Descent"| I
+    I -->|"Arithmetic CDF Projection"| B
+    B -->|"Local Window: [pos - ε, pos + ε]"| D
 ```
 
 * **Lookup Complexity**: $O(h \cdot \log \epsilon_{\text{rec}} + \log \epsilon_0)$, where $h \approx \log_{2\epsilon} S$.

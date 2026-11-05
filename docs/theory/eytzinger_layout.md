@@ -2,7 +2,7 @@
 
 ## Summary Extract
 
-Standard binary search over a contiguous sorted array jumps across disparate memory offsets (e.g. $N/2$, $N/4$, $N/8$), incurring recurring L1/L2/L3 cache misses and branch mispredictions.
+Standard binary search over a contiguous sorted array jumps across disparate memory offsets (e.g. `N/2`, `N/4`, `N/8`), incurring recurring L1/L2/L3 cache misses and branch mispredictions.
 
 The **Eytzinger layout** (also known as breadth-first or level-order array layout) reorganizes pre-sorted keys into a complete binary tree stored in an array indexed from 1:
 - Root is at index `1`.

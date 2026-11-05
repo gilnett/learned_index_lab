@@ -1,6 +1,6 @@
 # Theoretical Foundations Index
 
-This directory provides concise extracts of each foundational theory behind `learned-index`, paired with direct links to the seminal research publications and full PDF papers:
+This directory provides concise extracts of each foundational theory behind `learned_index_lab`, paired with direct links to the seminal research publications and full PDF papers:
 
 | Theory / Topic | Summary Extract | Seminal Research & Full Paper |
 | :--- | :--- | :--- |

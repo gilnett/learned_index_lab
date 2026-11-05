@@ -39,7 +39,7 @@ Measured on x86_64 hardware in `--release` mode. Consolidated average across all
 | **Eytzinger** | 6.30 ms | 163.7 ns | 160.9 ns | **169.2 ns** | 7.63 MB | **164.6 ns** | **2.02x** |
 | **PGM-Index** | 6.82 ms | **153.0 ns** | **154.1 ns** | 208.6 ns | **21.1 KB** | 171.9 ns | **1.93x** |
 
-> Detailed breakdown per distribution (Dense Time-Series, Uniform Sparse, and Heavy-Tailed Lognormal) is available in [docs/benchmarks/statistical_benchmarks.md](docs/benchmarks/statistical_benchmarks.md).
+> Detailed breakdown per distribution (Dense Time-Series, Uniform Sparse, and Heavy-Tailed Lognormal) is available in [docs/benchmarks/statistical_benchmarks.md](../benchmarks/statistical_benchmarks.md).
 
 ---
 
@@ -68,18 +68,18 @@ cargo run --release -- --target pgm --suite uniform
 ## Documentation Index
 
 - **Theoretical Foundations**:
-  - [CDF Approximation in Learned Indexes](docs/theory/cdf_learned_index.md): Mathematical regression formulation.
-  - [Optimal Streaming PLA](docs/theory/streaming_pla.md): Single-pass bounded slope corridor algorithm.
-  - [Eytzinger Layout](docs/theory/eytzinger_layout.md): Complete binary tree array with branchless traversal.
-  - [Bounded Local Search](docs/theory/bounded_local_search.md): In-register ALU bounds and local verification.
-  - [Theory Index & Full Papers](docs/theory/README.md): Overview with direct links to academic publications.
+  - [CDF Approximation in Learned Indexes](../theory/cdf_learned_index.md): Mathematical regression formulation.
+  - [Optimal Streaming PLA](../theory/streaming_pla.md): Single-pass bounded slope corridor algorithm.
+  - [Eytzinger Layout](../theory/eytzinger_layout.md): Complete binary tree array with branchless traversal.
+  - [Bounded Local Search](../theory/bounded_local_search.md): In-register ALU bounds and local verification.
+  - [Theory Index & Full Papers](../theory/README.md): Overview with direct links to academic publications.
 - **Benchmarks & Performance**:
-  - [Statistical Benchmarks (10-Run Matrix)](docs/benchmarks/statistical_benchmarks.md): Detailed results for Dense Time-Series, Uniform Sparse, and Heavy-Tailed Lognormal distributions.
+  - [Statistical Benchmarks (10-Run Matrix)](../benchmarks/statistical_benchmarks.md): Detailed results for Dense Time-Series, Uniform Sparse, and Heavy-Tailed Lognormal distributions.
 - **Architecture & Use Cases**:
-  - [Production Architecture & Real-World Use Cases](docs/architecture/use_cases_and_production.md): OLAP columnar zone maps, LSM-Tree NVMe cache residency, and decision matrices.
+  - [Production Architecture & Real-World Use Cases](../architecture/use_cases_and_production.md): OLAP columnar zone maps, LSM-Tree NVMe cache residency, and decision matrices.
 - **Historical Archives**:
-  - [v0.2.0 Documentation Archive](docs/history/README_v0.2.0.md)
-  - [v0.1.1 Documentation Archive](docs/history/README_v0.1.1.md)
+  - [v0.2.0 Documentation Archive](README_v0.2.0.md)
+  - [v0.1.1 Documentation Archive](README_v0.1.1.md)
 
 ---
 
@@ -112,4 +112,4 @@ cargo run --release -- --target pgm --suite uniform
 
 ## License
 
-Licensed under the **Apache License, Version 2.0** ([LICENSE](LICENSE) or [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0)).
+Licensed under the **Apache License, Version 2.0** ([LICENSE](../../LICENSE) or [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0)).
