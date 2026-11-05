@@ -27,13 +27,14 @@ This document presents a rigorous, unbiased evaluation methodology, workload dis
 
 When evaluating memory consumption, a critical distinction must be drawn between **index metadata overhead** and **total resident memory**:
 
-| Structure | Raw Data Buffer (1M keys) | Index Metadata Overhead | Total Resident Memory | In-Place Writes / Mutations |
+| Structure | Raw Data Buffer (1M keys) | Index Metadata Overhead | Total Resident Memory | Mutation / Ingestion Model |
 | :--- | :--- | :--- | :--- | :--- |
-| **`Flat Slice`** | 7.63 MB ($10^6 \times 8\text{ B}$) | **0.00 KB** | **7.63 MB** | No (requires $O(N)$ shift) |
-| **`EytzingerSearch`** | 7.63 MB (source) | 7.63 MB (tree array) | 15.26 MB | No (full rebuild) |
-| **`PgmIndex`** | 7.63 MB ($10^6 \times 8\text{ B}$) | 3.1 KB – 1.50 MB | 7.63 MB – 9.13 MB | No (requires batch merge/rebuild) |
-| **`MultilevelPgmIndex`** | 7.63 MB ($10^6 \times 8\text{ B}$) | 2.0 KB – 1.32 MB | 7.63 MB – 8.95 MB | No (requires batch merge/rebuild) |
-| **`BTreeMap`** | Embedded in heap nodes | ~45.78 MB (nodes + pointers) | 45.78 MB | **Yes ($O(\log N)$ concurrent/in-place)** |
+| **`Flat Slice`** | 7.63 MB (10⁶ × 8 B) | **0.00 KB** | **7.63 MB** | Read-only (shift O(N)) |
+| **`Eytzinger (In-Situ)`** | 7.63 MB (level-order) | **0.00 KB** | **7.63 MB** | Read-only (rebuild required) |
+| **`Eytzinger (Index)`** | 7.63 MB (sorted source) | 7.63 MB (tree array) | 15.26 MB | Read-only (rebuild required) |
+| **`PgmIndex`** | 7.63 MB (10⁶ × 8 B) | 3.1 KB – 1.50 MB | 7.63 MB – 9.13 MB | Read-only (batch merge O(N+M)) |
+| **`MultilevelPgmIndex`** | 7.63 MB (10⁶ × 8 B) | 2.0 KB – 1.32 MB | 7.63 MB – 8.95 MB | Read-only (batch merge O(N+M)) |
+| **`BTreeMap`** | Embedded in heap nodes | ~45.78 MB (nodes + pointers) | 45.78 MB | Dynamic (in-place O(log N)) |
 
 * `PgmIndex` and `MultilevelPgmIndex` do not replace the underlying data buffer; they are secondary index structures requiring the raw contiguous sorted slice ($7.63\text{ MB}$).
 * While PGM reduces *index metadata* by up to 14,700x relative to `BTreeMap` on linear workloads, the *total process memory reduction* is approximately **5.0x to 5.7x** ($7.63\text{ MB}$ vs $45.78\text{ MB}$).

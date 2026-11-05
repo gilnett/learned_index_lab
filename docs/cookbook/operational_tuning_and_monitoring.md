@@ -36,7 +36,7 @@ flowchart TD
 
 | Metric | Calculation | Healthy Range | Degraded Signal | Recommended Action |
 | :--- | :--- | :--- | :--- | :--- |
-| **Compression Ratio** | $N / S$ (keys per segment) | $> 100\times$ | $< 50\times$ | Increase $\varepsilon$ or evaluate key distribution skew |
+| **Compression Ratio** | `N/S` (keys per segment) | $> 100\times$ | $< 50\times$ | Increase $\varepsilon$ or evaluate key distribution skew |
 | **Index Metadata Size** | `pgm.metadata_bytes()` | $< 1\%$ of raw data | $> 5\%$ of raw data | Switch to `MultilevelPgmIndex` |
 | **Lookup Latency** | Mean point lookup time | $100 - 150\text{ ns}$ | $> 300\text{ ns}$ | Segments overflowing L3 cache; add hierarchical level |
 

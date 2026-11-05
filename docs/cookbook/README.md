@@ -40,4 +40,4 @@ flowchart TD
 | **[2. Concurrent Read Scaling](concurrent_reads.md)** | Multi-core read parallelism without lock contention | `Arc<PgmIndex>`, `std::thread`, thread pools |
 | **[3. LSM SSTable Double-Buffering](lsm_sstable_double_buffering.md)** | Non-blocking compaction lifecycle in LSM engines | `merge_sorted_batch`, `RwLock<Arc<PgmIndex>>` |
 | **[4. Columnar Block Zone Maps](columnar_block_zone_maps.md)** | Sparse indexing for Parquet / ClickHouse blocks | Block boundaries, row-group pruning |
-| **[5. Operational Tuning & Monitoring](operational_tuning_and_monitoring.md)** | Production sizing, epsilon tuning, and health checks | Cache line sizing, $N/S$ ratio monitoring |
+| **[5. Operational Tuning & Monitoring](operational_tuning_and_monitoring.md)** | Production sizing, epsilon tuning, and health checks | Cache line sizing, `N/S` ratio monitoring |
